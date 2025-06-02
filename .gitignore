@@ -1,0 +1,13 @@
+outputs
+.snakemake
+wf_snakemake/MultiTumorNormalPair/.cache/
+wf_snakemake/MultiTumorNormalPair/.parallel/
+wf_snakemake/MultiTumorNormalPair/.keras/
+wf_snakemake/MultiTumorNormalPair/results
+wf_snakemake/MultiTumorNormalPair/logs
+wf_snakemake/MultiTumorNormalPair/.snakemake
+wf_snakemake/MultiTumorNormalPair/GET_CLAIR_MODELS/results
+wf_snakemake/MultiTumorNormalPair/GET_CLAIR_MODELS/models4SubSampled
+wf_snakemake/MultiTumorNormalPair/GET_CLAIR_MODELS/.snakemake
+
+# 

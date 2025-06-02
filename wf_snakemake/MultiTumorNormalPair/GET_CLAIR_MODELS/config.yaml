@@ -1,0 +1,15 @@
+# Path to samples YAML file
+# samples_file: "/data1/greenbab/projects/methyl_benchmark_spectrum/ONT_BSseq/ONT_DLP_1stPre/full_spectrum_cohort/configs/multi_tum_normal.yaml"
+samples_file: "/data1/greenbab/users/ahunos/apps/workflows/methylation_workflows/modkit_wf/wf_snakemake/modules/rule_subSampleBams/output/subset_chr21/subsamples.yaml"
+# /data1/greenbab/users/ahunos/apps/workflows/methylation_workflows/read_based_mod_coPhasing/wf_snakemake/MultiTumorNormalPair/GET_CLAIR_MODELS/models4SubSampled/results/summary/copy_complete_summary.csv
+# ClairS model configuration
+default_cancer_model: "ont_r10_dorado_sup_5khz_ssrs"
+user_cancer_model: null  # Set to a specific model if desired
+sup_4khz_model: "ont_r10_dorado_sup_4khz"
+hac_5khz_model: "ont_r10_dorado_hac_5khz"
+r9_guppy_model: "ont_r9_guppy"
+
+# Singularity container configuration
+samtools_container: "/data1/greenbab/users/ahunos/apps/containers/onttools_latest.sif"
+python_container: "/data1/greenbab/users/ahunos/apps/containers/onttools_latest.sif"
+pandas_container: "/data1/greenbab/users/ahunos/apps/containers/onttools_latest.sif"
