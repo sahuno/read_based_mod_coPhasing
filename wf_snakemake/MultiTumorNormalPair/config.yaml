@@ -3,7 +3,7 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # INPUT/OUTPUT PATHS
 # ─────────────────────────────────────────────────────────────────────────────
-samples_file: "/data1/greenbab/users/ahunos/apps/workflows/methylation_workflows/read_based_mod_coPhasing/wf_snakemake/MultiTumorNormalPair/GET_CLAIR_MODELS/models4SubSampled/results/summary/copy_complete_summary.csv"
+samples_file: "/data1/greenbab/users/ahunos/apps/workflows/methylation_workflows/read_based_mod_coPhasing/wf_snakemake/MultiTumorNormalPair/GET_CLAIR_MODELS/results/summary/copy_complete_summary.csv"
 
 # Uncomment for testing on chr19:
 # samples_file: "/data1/greenbab/projects/Sarcoma_DNAme/data/processed/t2t_analysis/subset_modBam/results/chr19_subset/manifest_chr19_bams.tsv"
@@ -18,7 +18,7 @@ reference:
   genome: "/data1/shahs3/isabl_data_lake/assemblies/GRCh37/GRCh37-lite/GRCh37-lite.fa"
   tandem_repeats: "/data1/greenbab/database/human_GRCh37/human_hs37d5.trf.bed"
   genome_sizes: "/data1/shahs3/isabl_data_lake/assemblies/GRCh37/GRCh37-lite/GRCh37_lite.genome.sizes"
-  contig: "chr19"  # Set to null to process all contigs
+  contig: null  # Set to null to process all contigs
 
 # REF          = "/data1/shahs3/isabl_data_lake/assemblies/GRCh37/GRCh37-lite/GRCh37-lite.fa"
 # GENOMESIZES = "/data1/shahs3/isabl_data_lake/assemblies/GRCh37/GRCh37-lite/GRCh37_lite.genome.sizes"
