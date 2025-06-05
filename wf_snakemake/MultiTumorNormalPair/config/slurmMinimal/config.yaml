@@ -55,7 +55,29 @@ set-resources:
         runtime: 500
         nodes: 1
         mem_mb_per_cpu: 64000
-        cpus_per_task: 12
+        cpus_per_task: 8
+    longphase_modcall_by_chr:
+        slurm_partition: "componc_cpu"
+        slurm_account: "greenbab"
+        runtime: 200
+        nodes: 1
+        mem_mb_per_cpu: 32000  # Much less memory needed per chromosome
+        cpus_per_task: 8
+    # Add these to your set-resources section
+    run_clair_by_chr:
+        slurm_partition: "componc_cpu"
+        slurm_account: "greenbab"
+        runtime: 180  # 3 hours per chromosome
+        nodes: 1
+        mem_mb_per_cpu: 32000  # 32GB per CPU (much less than full genome)
+        cpus_per_task: 8
+    merge_clair_results:
+        slurm_partition: "cpushort"
+        slurm_account: "greenbab"
+        runtime: 120  # 1 hour for merging
+        nodes: 1
+        mem_mb_per_cpu: 8000  # 8GB per CPU
+        cpus_per_task: 4
     run_clair:
         slurm_partition: "componc_cpu"
         slurm_account: "greenbab"

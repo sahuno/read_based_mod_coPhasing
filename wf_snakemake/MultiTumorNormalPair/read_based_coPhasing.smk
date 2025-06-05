@@ -11,6 +11,22 @@ import itertools
 # ─── 0) LOAD CONFIGURATION ────────────────────────────────────────────────────
 configfile: "/data1/greenbab/users/ahunos/apps/workflows/methylation_workflows/read_based_mod_coPhasing/wf_snakemake/MultiTumorNormalPair/config.yaml"
 
+# ─── LOAD CHROMOSOMES FROM REFERENCE ─────────────────────────────────────────
+def get_chromosomes_from_fai(fai_path):
+    """Read chromosome names from FASTA index file"""
+    chromosomes = []
+    try:
+        with open(fai_path, 'r') as f:
+            for line in f:
+                chrom = line.strip().split('\t')[0]
+                chromosomes.append(chrom)
+    except FileNotFoundError:
+        print(f"Warning: FAI file not found at {fai_path}")
+        print("Using default chromosome list")
+        # Fallback to default chromosomes if FAI not found
+        chromosomes = ['chr' + str(i) for i in range(1, 23)] + ['chrX', 'chrY']
+    return chromosomes
+
 # Extract configuration values
 SAMPLES_FILE = config["samples_file"]
 SEED = config["misc"]["random_seed"]
@@ -28,6 +44,18 @@ REF = config["reference"]["genome"]
 TANDEM_REPS = config["reference"]["tandem_repeats"]
 CONTIG = config["reference"]["contig"]
 GENOMESIZES = config["reference"]["genome_sizes"]
+
+
+# Get chromosomes from reference FAI file
+FAI_FILE = REF + ".fai"
+CHROMOSOMES = get_chromosomes_from_fai(FAI_FILE)
+print(f"Found {len(CHROMOSOMES)} chromosomes/contigs in reference")
+
+# Optional: Filter to only major chromosomes if desired
+# This filters to only chr1-22, chrX, chrY, chrM (adjust pattern as needed)
+MAJOR_CHROMOSOMES = CHROMOSOMES
+# MAJOR_CHROMOSOMES = [c for c in CHROMOSOMES if c.startswith('chr') and not '_' in c]
+# print(f"Using {len(MAJOR_CHROMOSOMES)} major chromosomes for parallel processing")
 
 # Computational resources
 THREADS = config["resources"]["threads"]["default"]
@@ -150,30 +178,32 @@ rule all:
                pair=PAIRS, haplotype=haplotypes),
 
 # ─── 2) RUN Clair3 (tumor+normal pair) ────────────────────────────────────────
-rule run_clair:
+# ─── 2a) RUN Clair3 by chromosome ────────────────────────────────────────
+
+# ─── 2a) RUN Clair3 by chromosome ────────────────────────────────────────
+rule run_clair_by_chr:
     input:
         tumor  = lambda wc: pair_info[wc.pair]['tumor_bam'],
         normal = lambda wc: pair_info[wc.pair]['normal_bam'],
     output:
-        tumor_vcf       = f"{OUTDIR}/run_clair/{{pair}}/{{pair}}.snv.vcf.gz",
-        normal_germ_vcf = f"{OUTDIR}/run_clair/{{pair}}/clair3_normal_germline_output.vcf.gz",
-        doneflag        = f"{OUTDIR}/run_clair/{{pair}}/done.{{pair}}.txt",
+        tumor_vcf       = temp(f"{OUTDIR}/run_clair/{{pair}}/by_chr/{{chr}}/{{pair}}.snv.vcf.gz"),
+        normal_germ_vcf = temp(f"{OUTDIR}/run_clair/{{pair}}/by_chr/{{chr}}/clair3_normal_germline_output.vcf.gz"),
+        doneflag        = temp(f"{OUTDIR}/run_clair/{{pair}}/by_chr/{{chr}}/done.txt"),
     threads: config["resources"]["threads"]["clair3"]
     resources:
-        mem_mb = config["resources"]["memory_mb"]["clair3"]
+        mem_mb = config["resources"]["memory_mb"]["clair3"] // 2  # Less memory needed per chromosome
     singularity: CLAIRS_IMG
     params:
         ref           = REF,
         platform      = lambda wc: pair_info[wc.pair]['clairs_model'],
-        ctg_names     = CONTIG if CONTIG else "",
         conda_prefix  = CONDAPREFIX,
         qual_threshold = config["variant_calling"]["clair3"]["quality_threshold"],
         enable_germline = "--enable_clair3_germline_output" if config["variant_calling"]["clair3"]["enable_germline_output"] else "",
     log:
-        f"{config['logging']['log_dir']}/run_clair/{{pair}}/{{pair}}.log"
+        f"{config['logging']['log_dir']}/run_clair/{{pair}}/by_chr/{{chr}}.log"
     shell:
         r"""
-        mkdir -p {OUTDIR}/run_clair/{wildcards.pair}
+        mkdir -p {OUTDIR}/run_clair/{wildcards.pair}/by_chr/{wildcards.chr}
         
         # Define platforms that support indel calling
         INDEL_PLATFORMS="ont_r10_dorado_sup_5khz_ssrs ont_r10_dorado_sup_5khz_ss ont_r10_guppy ont_r10 ont hifi_revio hifi_sequel2 ont_r10_dorado_sup_5khz ont_r10_dorado_hac_5khz ont_r10_dorado_sup_4khz ont_r10_dorado_hac_5khz_liquid hifi_revio_ssrs hifi_revio_ss"
@@ -187,7 +217,9 @@ rule run_clair:
             echo "WARNING: Platform {params.platform} does not support indel calling" | tee -a {log}
         fi
         
-        # Run Clair3
+        # Run Clair3 on specific chromosome
+        echo "Processing chromosome {wildcards.chr} for pair {wildcards.pair}" | tee -a {log}
+        
         /opt/bin/run_clairs \
           --tumor_bam_fn   {input.tumor} \
           --normal_bam_fn  {input.normal} \
@@ -198,10 +230,9 @@ rule run_clair:
           --platform       '{params.platform}' \
           $ENABLE_INDEL \
           {params.enable_germline} \
-          --output_dir     {OUTDIR}/run_clair/{wildcards.pair} \
+          --output_dir     {OUTDIR}/run_clair/{wildcards.pair}/by_chr/{wildcards.chr} \
           --conda_prefix   {params.conda_prefix} \
-          --include_all_ctgs \
-          $(if [ -n "{params.ctg_names}" ]; then echo "--ctg_name {params.ctg_names}"; fi) \
+          --ctg_name       {wildcards.chr} \
         2>&1 | tee -a {log}
         
         # Check if the command succeeded
@@ -209,18 +240,19 @@ rule run_clair:
             # Check if output files exist
             if [ -f "{output.tumor_vcf}" ] && [ -f "{output.normal_germ_vcf}" ]; then
                 touch {output.doneflag}
-                echo "Clair3 completed successfully" >> {log}
+                echo "Clair3 completed successfully for {wildcards.chr}" >> {log}
             else
                 # Handle case where Clair3 succeeded but produced no variants
-                echo "Clair3 completed but no output files found. Creating empty VCFs..." >> {log}
+                echo "Clair3 completed but no output files found for {wildcards.chr}. Creating empty VCFs..." >> {log}
                 
                 # Create temporary uncompressed VCF files
-                TEMP_TUMOR="{OUTDIR}/run_clair/{wildcards.pair}/{wildcards.pair}.snv.vcf"
-                TEMP_NORMAL="{OUTDIR}/run_clair/{wildcards.pair}/clair3_normal_germline_output.vcf"
+                TEMP_TUMOR="{OUTDIR}/run_clair/{wildcards.pair}/by_chr/{wildcards.chr}/{wildcards.pair}.snv.vcf"
+                TEMP_NORMAL="{OUTDIR}/run_clair/{wildcards.pair}/by_chr/{wildcards.chr}/clair3_normal_germline_output.vcf"
                 
                 # Create empty VCF files with proper headers
                 echo '##fileformat=VCFv4.2' > "$TEMP_TUMOR"
                 echo '##source=ClairS' >> "$TEMP_TUMOR"
+                echo '##contig=<ID={wildcards.chr}>' >> "$TEMP_TUMOR"
                 echo '#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	FORMAT	TUMOR	NORMAL' >> "$TEMP_TUMOR"
                 
                 # Copy for normal VCF
@@ -233,10 +265,116 @@ rule run_clair:
                 tabix -p vcf "{output.normal_germ_vcf}"
                 
                 touch {output.doneflag}
-                echo "Created empty VCF files" >> {log}
+                echo "Created empty VCF files for {wildcards.chr}" >> {log}
             fi
         else
-            echo "Clair3 failed with exit code ${{PIPESTATUS[0]}}" >> {log}
+            echo "Clair3 failed for {wildcards.chr} with exit code ${{PIPESTATUS[0]}}" >> {log}
+            exit 1
+        fi
+        """
+
+# ─── 2b) MERGE Clair3 chromosome results ────────────────────────────────────
+rule merge_clair_results:
+    input:
+        tumor_vcfs = lambda wc: expand(f"{OUTDIR}/run_clair/{wc.pair}/by_chr/{chr}/{wc.pair}.snv.vcf.gz", 
+                                      chr=MAJOR_CHROMOSOMES),
+        normal_vcfs = lambda wc: expand(f"{OUTDIR}/run_clair/{wc.pair}/by_chr/{chr}/clair3_normal_germline_output.vcf.gz", 
+                                       chr=MAJOR_CHROMOSOMES),
+        doneflags = lambda wc: expand(f"{OUTDIR}/run_clair/{wc.pair}/by_chr/{chr}/done.txt", 
+                                     chr=MAJOR_CHROMOSOMES)
+    output:
+        tumor_vcf       = f"{OUTDIR}/run_clair/{{pair}}/{{pair}}.snv.vcf.gz",
+        normal_germ_vcf = f"{OUTDIR}/run_clair/{{pair}}/clair3_normal_germline_output.vcf.gz",
+        doneflag        = f"{OUTDIR}/run_clair/{{pair}}/done.{{pair}}.txt",
+    threads: 4
+    singularity: MODKIT_IMG
+    log:
+        f"{config['logging']['log_dir']}/run_clair/{{pair}}/merge.log"
+    params:
+        chromosomes = MAJOR_CHROMOSOMES  # Pass chromosome list as parameter
+    shell:
+        r"""
+        mkdir -p {OUTDIR}/run_clair/{wildcards.pair}
+        
+        echo "Starting merge of Clair3 results for pair {wildcards.pair}" | tee {log}
+        echo "Chromosomes to merge: {params.chromosomes}" | tee -a {log}
+        
+        # Build lists of VCFs maintaining chromosome order from reference
+        TUMOR_VCFS=""
+        NORMAL_VCFS=""
+        MISSING_CHRS=""
+        
+        for chr in {params.chromosomes}; do
+            tumor_vcf_path="{OUTDIR}/run_clair/{wildcards.pair}/by_chr/${{chr}}/{wildcards.pair}.snv.vcf.gz"
+            normal_vcf_path="{OUTDIR}/run_clair/{wildcards.pair}/by_chr/${{chr}}/clair3_normal_germline_output.vcf.gz"
+            
+            if [ -f "$tumor_vcf_path" ] && [ -f "$normal_vcf_path" ]; then
+                TUMOR_VCFS="$TUMOR_VCFS $tumor_vcf_path"
+                NORMAL_VCFS="$NORMAL_VCFS $normal_vcf_path"
+                echo "Found VCFs for chromosome $chr" | tee -a {log}
+            else
+                MISSING_CHRS="$MISSING_CHRS $chr"
+                echo "Warning: Missing VCF files for chromosome $chr" | tee -a {log}
+            fi
+        done
+        
+        # Check if we have any VCFs to merge
+        if [ -z "$TUMOR_VCFS" ]; then
+            echo "ERROR: No VCF files found to merge!" | tee -a {log}
+            exit 1
+        fi
+        
+        if [ -n "$MISSING_CHRS" ]; then
+            echo "WARNING: Missing results for chromosomes:$MISSING_CHRS" | tee -a {log}
+        fi
+        
+        # Merge tumor VCFs
+        echo "Merging tumor VCFs..." | tee -a {log}
+        bcftools concat $TUMOR_VCFS \
+            --allow-overlaps \
+            --output-type z \
+            --output {output.tumor_vcf} \
+            --threads {threads} 2>&1 | tee -a {log}
+        
+        if [ ${{PIPESTATUS[0]}} -ne 0 ]; then
+            echo "ERROR: Failed to merge tumor VCFs" | tee -a {log}
+            exit 1
+        fi
+        
+        # Index tumor VCF
+        tabix -p vcf {output.tumor_vcf}
+        
+        # Merge normal germline VCFs
+        echo "Merging normal germline VCFs..." | tee -a {log}
+        bcftools concat $NORMAL_VCFS \
+            --allow-overlaps \
+            --output-type z \
+            --output {output.normal_germ_vcf} \
+            --threads {threads} 2>&1 | tee -a {log}
+        
+        if [ ${{PIPESTATUS[0]}} -ne 0 ]; then
+            echo "ERROR: Failed to merge normal VCFs" | tee -a {log}
+            exit 1
+        fi
+        
+        # Index normal VCF
+        tabix -p vcf {output.normal_germ_vcf}
+        
+        # Verify outputs and report statistics
+        if [ -f "{output.tumor_vcf}" ] && [ -f "{output.normal_germ_vcf}" ]; then
+            # Count variants in final VCFs
+            TUMOR_COUNT=$(bcftools view -H {output.tumor_vcf} | wc -l)
+            NORMAL_COUNT=$(bcftools view -H {output.normal_germ_vcf} | wc -l)
+            
+            echo "====== Merge Summary ======" | tee -a {log}
+            echo "Successfully merged $(echo $TUMOR_VCFS | wc -w) chromosome VCFs" | tee -a {log}
+            echo "Total tumor variants: $TUMOR_COUNT" | tee -a {log}
+            echo "Total normal germline variants: $NORMAL_COUNT" | tee -a {log}
+            echo "==========================" | tee -a {log}
+            
+            touch {output.doneflag}
+        else
+            echo "ERROR: Output files not created properly" | tee -a {log}
             exit 1
         fi
         """
@@ -298,31 +436,59 @@ rule validate_vcf_has_variants:
         """
 
 # ─── 4) LONGPHASE MODCALL (per individual sample) ──────────────────────────────────
-rule longphase_modcall:
+# ─── LONGPHASE MODCALL by chromosome ──────────────────────────────────
+rule longphase_modcall_by_chr:
     input:
         bam = lambda wc: get_sample_bam(wc.sample)
     output:
-        out_modcall = f"{OUTDIR}/longphase_modcall/{{sample}}/modcall_{{sample}}.vcf",
-        done_modcall= f"{OUTDIR}/longphase_modcall/{{sample}}/done.{{sample}}.txt"
+        out_modcall = temp(f"{OUTDIR}/longphase_modcall/{{sample}}/by_chr/modcall_{{sample}}_{{chr}}.vcf")
     params:
-        reference_genome   = REF,
-        threads            = THREADS,
-        out_modcall_suffix= f"{OUTDIR}/longphase_modcall/{{sample}}/modcall_{{sample}}"
+        reference_genome = REF,
+        threads = THREADS,
+        out_modcall_suffix = f"{OUTDIR}/longphase_modcall/{{sample}}/by_chr/modcall_{{sample}}_{{chr}}"
     threads: THREADS
     singularity: ONT_TOOLS_IMG
     log:
-        f"logs/longphase_modcall/{{sample}}/{{sample}}.log"
+        f"logs/longphase_modcall/{{sample}}/{{chr}}.log"
     shell:
         r"""
-        mkdir -p {OUTDIR}/longphase_modcall/{wildcards.sample}
+        mkdir -p {OUTDIR}/longphase_modcall/{wildcards.sample}/by_chr
         longphase modcall \
           -b {input.bam} \
           -t {params.threads} \
           -o {params.out_modcall_suffix} \
           -r {params.reference_genome} \
-        && touch {output.done_modcall} 2> {log}
+          --region {wildcards.chr} \
+        2> {log}
         """
 
+rule merge_longphase_modcall:
+    input:
+        vcfs = lambda wc: expand(f"{OUTDIR}/longphase_modcall/{wc.sample}/by_chr/modcall_{wc.sample}_{chr}.vcf", 
+                                chr=MAJOR_CHROMOSOMES)
+    output:
+        out_modcall = f"{OUTDIR}/longphase_modcall/{{sample}}/modcall_{{sample}}.vcf",
+        done_modcall = f"{OUTDIR}/longphase_modcall/{{sample}}/done.{{sample}}.txt"
+    threads: 2
+    singularity: ONT_TOOLS_IMG
+    log:
+        f"logs/longphase_modcall/{{sample}}/merge.log"
+    shell:
+        r"""
+        # Concatenate all chromosome VCFs
+        bcftools concat {input.vcfs} \
+            --allow-overlaps \
+            -o {output.out_modcall} 2>&1 | tee {log}
+        
+        # Verify output
+        if [ -f "{output.out_modcall}" ]; then
+            touch {output.done_modcall}
+            echo "Successfully merged $(echo {input.vcfs} | wc -w) chromosome VCFs" | tee -a {log}
+        else
+            echo "ERROR: Merge failed" | tee -a {log}
+            exit 1
+        fi
+        """
 # ─── 5) LONGPHASE COPHASE for tumor in pair ──────────────────────────────────
 rule mod_SNV_coPhase_tumor:
     input:
