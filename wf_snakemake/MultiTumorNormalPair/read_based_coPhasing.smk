@@ -198,6 +198,65 @@ rule all:
             )
             for t in TYPE
         ],
+        # SNV+SV+mod co‐phased haplotagged BAMs
+        *[
+            expand(
+                f"{OUTDIR}/SNV_SV_MOD_coPhased_haplotagged/{{pair}}/{t}/{{sid}}_haplotagged.{ext}",
+                zip,
+                pair=PAIRS,
+                sid=[ pair_info[p][f"{t}_id"] for p in PAIRS ],
+            )
+            for t in TYPE
+            for ext in ("bam", "bam.bai", "subsampled.bam", "subsampled.bam.bai")
+        ],
+        # done flags
+        *[
+            expand(
+                f"{OUTDIR}/SNV_SV_MOD_coPhased_haplotagged/{{pair}}/{t}/done.{{sid}}.txt",
+                zip,
+                pair=PAIRS,
+                sid=[ pair_info[p][f"{t}_id"] for p in PAIRS ],
+            )
+            for t in TYPE
+        ],
+        expand(
+            f"{OUTDIR}/modkit_pileup_unphased_TN/{{pair}}/tumor/{{tumor_id}}.bed.gz",
+            zip,
+            pair=PAIRS,
+            tumor_id=[ pair_info[p]['tumor_id'] for p in PAIRS ]
+        ),
+        expand(
+            f"{OUTDIR}/modkit_pileup_unphased_TN/{{pair}}/tumor/{{tumor_id}}.bed.gz.tbi",
+            zip,
+            pair=PAIRS,
+            tumor_id=[ pair_info[p]['tumor_id'] for p in PAIRS ]
+        ),
+        expand(
+            f"{OUTDIR}/modkit_pileup_unphased_TN/{{pair}}/tumor/done.{{tumor_id}}.txt",
+            zip,
+            pair=PAIRS,
+            tumor_id=[ pair_info[p]['tumor_id'] for p in PAIRS ]
+        ),
+
+        # modkit_pileup_unphased_TN outputs for normal
+        expand(
+            f"{OUTDIR}/modkit_pileup_unphased_TN/{{pair}}/normal/{{normal_id}}.bed.gz",
+            zip,
+            pair=PAIRS,
+            normal_id=[ pair_info[p]['normal_id'] for p in PAIRS ]
+        ),
+        expand(
+            f"{OUTDIR}/modkit_pileup_unphased_TN/{{pair}}/normal/{{normal_id}}.bed.gz.tbi",
+            zip,
+            pair=PAIRS,
+            normal_id=[ pair_info[p]['normal_id'] for p in PAIRS ]
+        ),
+        expand(
+            f"{OUTDIR}/modkit_pileup_unphased_TN/{{pair}}/normal/done.{{normal_id}}.txt",
+            zip,
+            pair=PAIRS,
+            normal_id=[ pair_info[p]['normal_id'] for p in PAIRS ]
+        ),
 ## Pair-specific mod-snv-sv co-phasing
         # expand(f"{OUTDIR}/mod_SNV_coPhase/{{pair}}/tumor/{{tumor_id}}_mod.vcf",
         #        zip, pair=PAIRS, tumor_id=[pair_info[p]['tumor_id'] for p in PAIRS]),
@@ -249,6 +308,32 @@ rule all:
         # DMR outputs
         expand(f"{OUTDIR}/modkit_dmr_pairCpGs/{{pair}}/HP{{haplotype}}/{{pair}}_HP{{haplotype}}_TumorNormal_dmr_diff.bed.gz",
                pair=PAIRS, haplotype=haplotypes),
+
+##DMR unphased
+        *[
+            expand(
+                f"{OUTDIR}/modkit_dmr_unphased_TN/{{pair}}/{{pair}}{s}",
+                pair=PAIRS
+            )
+            for s in [
+                "_unphased_raw_dmr.bed",
+                "_unphased_raw_segmentation.bed",
+                "_unphased_TN_dmr.bed.gz",
+                "_unphased_TN_dmr.bed.gz.tbi",
+                "_unphased_TN_dmr_segmentation.bed.gz",
+                "_unphased_TN_dmr_segmentation.bed.gz.tbi",
+                "_unphased_TN_dmr_diff.bed",
+                "_unphased_TN_dmr_diff.bed.gz",
+                "_unphased_TN_dmr_diff.bed.gz.tbi",
+            ]
+        ]
+
+
+
+
+
+
+
 
 # ─── 2) RUN Clair3 (tumor+normal pair) ────────────────────────────────────────
 # ─── 2a) RUN Clair3 by chromosome ────────────────────────────────────────
@@ -848,7 +933,36 @@ rule SNV_SV_MOD_haplotag:
         touch {output.done}
         """
 
-
+# ─── OPTIONAL: WhatsHap SNV phasing ──────────────────────────────────────
+rule whatshap_phase:
+    """
+    Phase SNPs (and small indels) with WhatsHap.
+    Produces a phased VCF and its index.
+    """
+    input:
+        vcf = f"{OUTDIR}/filter_pass/{{type}}/{{pair}}/{{sample_id}}.pass.vcf.gz",
+        bam = lambda wc: pair_info[wc.pair][f"{wc.type}_bam"]
+    output:
+        phased = f"{OUTDIR}/whatsHap_phase/{{pair}}/{{type}}/{{sample_id}}.whatsHap.phased.vcf.gz",
+        tbi    = f"{OUTDIR}/whatsHap_phase/{{pair}}/{{type}}/{{sample_id}}.whatsHap.phased.vcf.gz.tbi"
+    params:
+        ref     = REF,
+        threads = THREADS
+    singularity: ONT_TOOLS_IMG
+    threads: THREADS
+    log:
+        f"{config['logging']['log_dir']}/whatsHap/{{pair}}/{{type}}/{{sample_id}}.log"
+    shell:
+        r"""
+        mkdir -p $(dirname {output.phased})
+        whatshap phase \
+            --reference {params.ref} \
+            --output {output.phased} \
+            --output-read-phases {output.phased}.reads \
+            {input.vcf} {input.bam} \
+            --threads {threads} 2>&1 | tee {log}
+        tabix -p vcf {output.phased}
+        """
 
 # ─── 7) STRUCTURAL VARIANT CALLING ──────────────────────────
 rule normal_sv:
@@ -929,6 +1043,134 @@ rule somatic_sv:
         tabix -f -p vcf {output.sv_filtered} 2>> {log}
         """
 
+rule modkit_pileup_unphased_TN:
+    """
+    Run an unphased modkit pileup on tumor or normal haplotagged BAM,
+    then sort, bgzip & tabix the output bed.
+    """
+    input:
+        # input callable is allowed
+        haplotagged_bam=lambda wc: (
+            f"{OUTDIR}/mod_SNV_coPhased_haplotagged/"
+            f"{wc.pair}/{wc.type}/"
+            f"{wc.sample_id}_haplotagged.subsampled.bam"
+        )
+    output:
+        # these must be static patterns with wildcards
+        tmp_bed   = f"{OUTDIR}/modkit_pileup_unphased_TN/{{pair}}/{{type}}/{{sample_id}}.bed",
+        bed   = f"{OUTDIR}/modkit_pileup_unphased_TN/{{pair}}/{{type}}/{{sample_id}}.bed.gz",
+        tbi   = f"{OUTDIR}/modkit_pileup_unphased_TN/{{pair}}/{{type}}/{{sample_id}}.bed.gz.tbi",
+        done  = f"{OUTDIR}/modkit_pileup_unphased_TN/{{pair}}/{{type}}/done.{{sample_id}}.txt"
+    params:
+        ref             = REF,
+        filter_threshold= config["methylation"]["modkit"]["filter_threshold"],
+        sampling_frac   = config["methylation"]["modkit"]["sampling_fraction"],
+        combine_strands = "--combine-strands" if config["methylation"]["modkit"]["combine_strands"] else "",
+        cpg_only        = "--cpg"             if config["methylation"]["modkit"]["cpg_only"] else "",
+        # outdir can still be a lambda
+        outdir          = lambda wc: f"{OUTDIR}/modkit_pileup_unphased_TN/{wc.pair}/{wc.type}/"
+    threads: THREADS
+    log:
+        # log must also be a static pattern
+        f"{config['logging']['log_dir']}/modkit_pileup_unphased_TN/{{pair}}/{{type}}/{{sample_id}}.log"
+    singularity: MODKIT_IMG
+    shell:
+        r"""
+        set -euo pipefail
+
+        mkdir -p {params.outdir}
+
+        # 1) run modkit pileup
+        modkit pileup \
+            --ref {params.ref} \
+            {params.cpg_only} {params.combine_strands} \
+            --filter-threshold {params.filter_threshold} \
+            --sampling-frac {params.sampling_frac} \
+            --threads {threads} \
+            {input.haplotagged_bam} {output.tmp_bed} \
+        2>&1 | tee {log}
+
+        # 2) sort + compress
+        sort -k1,1 -k2,2n \
+            {output.tmp_bed} \
+        | bgzip -c > {output.bed}
+
+        # 3) index
+        tabix -p bed {output.bed}
+
+        # 4) done
+        touch {output.done}
+        """
+
+rule modkit_dmr_unphased_TN:
+    """
+    Call DMRs comparing unphased normal vs tumor 5mC BED outputs,
+    emit raw DMRs + segmentation, then compress/index both,
+    and finally filter “different” DMRs and compress/index those.
+    """
+    input:
+        normal_bed = lambda wc: f"{OUTDIR}/modkit_pileup_unphased_TN/{wc.pair}/normal/{pair_info[wc.pair]['normal_id']}.bed.gz",
+        tumor_bed  = lambda wc: f"{OUTDIR}/modkit_pileup_unphased_TN/{wc.pair}/tumor/{pair_info[wc.pair]['tumor_id']}.bed.gz"
+    output:
+        # raw outputs
+        raw_dmr      = f"{OUTDIR}/modkit_dmr_unphased_TN/{{pair}}/{{pair}}_unphased_raw_dmr.bed",
+        raw_seg      = f"{OUTDIR}/modkit_dmr_unphased_TN/{{pair}}/{{pair}}_unphased_raw_segmentation.bed",
+        # compressed/indexed raw
+        dmr_gz       = f"{OUTDIR}/modkit_dmr_unphased_TN/{{pair}}/{{pair}}_unphased_TN_dmr.bed.gz",
+        dmr_tbi      = f"{OUTDIR}/modkit_dmr_unphased_TN/{{pair}}/{{pair}}_unphased_TN_dmr.bed.gz.tbi",
+        seg_gz       = f"{OUTDIR}/modkit_dmr_unphased_TN/{{pair}}/{{pair}}_unphased_TN_dmr_segmentation.bed.gz",
+        seg_tbi      = f"{OUTDIR}/modkit_dmr_unphased_TN/{{pair}}/{{pair}}_unphased_TN_dmr_segmentation.bed.gz.tbi",
+        # filtered “different” DMRs
+        diff_bed     = f"{OUTDIR}/modkit_dmr_unphased_TN/{{pair}}/{{pair}}_unphased_TN_dmr_diff.bed",
+        diff_gz      = f"{OUTDIR}/modkit_dmr_unphased_TN/{{pair}}/{{pair}}_unphased_TN_dmr_diff.bed.gz",
+        diff_tbi     = f"{OUTDIR}/modkit_dmr_unphased_TN/{{pair}}/{{pair}}_unphased_TN_dmr_diff.bed.gz.tbi"
+    params:
+        ref            = REF,
+        base           = "C",
+        mincov         = minCov,
+        min_dmr_sites  = 3
+    threads: THREADS
+    singularity: MODKIT_IMG
+    log:
+        f"{config['logging']['log_dir']}/dmr_unphased_TN/{{pair}}.log"
+    shell:
+        r"""
+        set -euo pipefail
+        mkdir -p $(dirname {output.raw_dmr})
+
+        # 1) call raw DMR + segmentation
+        modkit dmr pair \
+          -a {input.normal_bed} \
+          -b {input.tumor_bed} \
+          --ref {params.ref} \
+          --base {params.base} \
+          --min-valid-coverage {params.mincov} \
+          --threads {threads} \
+          --segment {output.raw_seg} \
+          -o {output.raw_dmr} \
+        2>&1 | tee {log}
+
+        # 2) compress & index raw DMR
+        sort -k1,1 -k2,2n {output.raw_dmr} \
+          | bgzip -c > {output.dmr_gz}
+        tabix -p bed {output.dmr_gz}
+
+        # 3) compress & index raw segmentation
+        sort -k1,1 -k2,2n {output.raw_seg} \
+          | bgzip -c > {output.seg_gz}
+        tabix -p bed {output.seg_gz}
+
+        # 4) filter “different” DMRs
+        awk -F '\t' 'NR>1 && $4=="different" && $6>={params.min_dmr_sites} && ($14>=0.5||$14<=-0.5) && ($15*$16>0)' \
+          {output.raw_seg} > {output.diff_bed}
+
+        # 5) compress & index filtered DMRs
+        sort -k1,1 -k2,2n {output.diff_bed} \
+          | bgzip -c > {output.diff_gz}
+        tabix -p bed {output.diff_gz}
+        """
+
+#--prefix {wildcards.sample_id} \
 # ─── METHYLATION PILEUP for tumor ────────────────────────────
 rule modkit_pileupCpGsBed_tumor:
     input:
