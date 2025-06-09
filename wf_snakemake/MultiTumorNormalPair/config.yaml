@@ -15,9 +15,12 @@ sv_output_dir: "results/sv"
 # REFERENCE FILES AND DATABASES
 # ─────────────────────────────────────────────────────────────────────────────
 reference:
-  genome: "/data1/shahs3/isabl_data_lake/assemblies/GRCh37/GRCh37-lite/GRCh37-lite.fa"
-  tandem_repeats: "/data1/greenbab/database/human_GRCh37/human_hs37d5.trf.bed"
-  genome_sizes: "/data1/shahs3/isabl_data_lake/assemblies/GRCh37/GRCh37-lite/GRCh37_lite.genome.sizes"
+  # genome: "/data1/shahs3/isabl_data_lake/assemblies/GRCh37/GRCh37-lite/GRCh37-lite.fa"
+  genome: "/data1/greenbab/database/human_GRCh37/GRCh37-lite_17.fa"
+  # tandem_repeats: "/data1/greenbab/database/human_GRCh37/human_hs37d5.trf.bed" 
+  tandem_repeats: "/data1/greenbab/database/human_GRCh37/human_hs37d5_contig17.trf.bed"
+  # genome_sizes: "/data1/shahs3/isabl_data_lake/assemblies/GRCh37/GRCh37-lite/GRCh37_lite.genome.sizes"
+  genome_sizes: "/data1/greenbab/database/human_GRCh37/GRCh37-lite_17.genome"
   contig: null  # Set to null to process all contigs
 
 # REF          = "/data1/shahs3/isabl_data_lake/assemblies/GRCh37/GRCh37-lite/GRCh37-lite.fa"
@@ -29,7 +32,7 @@ reference:
 containers:
   clairs: "/data1/greenbab/users/ahunos/apps/containers/clairs_latest.sif"
   modkit: "/data1/greenbab/users/ahunos/apps/containers/modkit_latest.sif"
-  ont_tools: "/data1/greenbab/users/ahunos/apps/containers/ONT_tools.sif"
+  ont_tools: "/data1/greenbab/users/ahunos/apps/containers/onttools_v2.0.sif"
   sniffles: "/data1/greenbab/users/ahunos/apps/containers/sniffles_2.6.2.sif"
 
 # Conda environment for Clair3

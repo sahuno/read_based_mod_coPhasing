@@ -7,6 +7,9 @@ import itertools
 # --workflow-profile /data1/greenbab/users/ahunos/apps/workflows/methylation_workflows/read_based_mod_coPhasing/wf_snakemake/MultiTumorNormalPair/config/slurmMinimal \
 # --cores all --use-singularity --singularity-args "--nv -B /data1/greenbab,/scratch/greenbab/ahunos,/data1/shahs3" --keep-going --rerun-incomplete -np
 
+##TODO: Request longphase modcall team to add trailing `>` to output VCFs
+# +        sed '/^##FORMAT=<ID=DP,/ s/$/>/' {output.out_modcall} \
+# +          | bgzip -c > {output.out_modcallgz}
 
 # ─── 0) LOAD CONFIGURATION ────────────────────────────────────────────────────
 configfile: "/data1/greenbab/users/ahunos/apps/workflows/methylation_workflows/read_based_mod_coPhasing/wf_snakemake/MultiTumorNormalPair/config.yaml"
@@ -159,7 +162,12 @@ rule all:
                zip, pair=PAIRS, tumor_id=[pair_info[p]['tumor_id'] for p in PAIRS]),
         expand(f"{OUTDIR}/mod_SNV_coPhased_haplotagged/{{pair}}/normal/{{normal_id}}_haplotagged.bam",
                zip, pair=PAIRS, normal_id=[pair_info[p]['normal_id'] for p in PAIRS]),
-
+        # Haplotagged BAMs; subsampled (if applicable)
+        expand(f"{OUTDIR}/mod_SNV_coPhased_haplotagged/{{pair}}/tumor/{{tumor_id}}_haplotagged.subsampled.bam",
+               zip, pair=PAIRS, tumor_id=[pair_info[p]['tumor_id'] for p in PAIRS]),
+        expand(f"{OUTDIR}/mod_SNV_coPhased_haplotagged/{{pair}}/normal/{{normal_id}}_haplotagged.subsampled.bam",
+               zip, pair=PAIRS, normal_id=[pair_info[p]['normal_id'] for p in PAIRS]),
+#subsampledHaplotagged_bam = f"{OUTDIR}/mod_SNV_coPhased_haplotagged/{{pair}}/tumor/{{tumor_id}}_haplotagged.subsampled.bam",
         # SV calling outputs
         expand(f"{SV_OUTDIR}/{{pair}}/normal/{{normal_id}}.normal.sniffles.filtered.vcf.gz",
                zip, pair=PAIRS, normal_id=[pair_info[p]['normal_id'] for p in PAIRS]),
@@ -276,18 +284,18 @@ rule run_clair_by_chr:
 # ─── 2b) MERGE Clair3 chromosome results ────────────────────────────────────
 rule merge_clair_results:
     input:
-        tumor_vcfs = lambda wc: expand(f"{OUTDIR}/run_clair/{wc.pair}/by_chr/{chr}/{wc.pair}.snv.vcf.gz", 
+        tumor_vcfs = lambda wc: expand(f"{OUTDIR}/run_clair/{wc.pair}/by_chr/{{chr}}/{wc.pair}.snv.vcf.gz", 
                                       chr=MAJOR_CHROMOSOMES),
-        normal_vcfs = lambda wc: expand(f"{OUTDIR}/run_clair/{wc.pair}/by_chr/{chr}/clair3_normal_germline_output.vcf.gz", 
+        normal_vcfs = lambda wc: expand(f"{OUTDIR}/run_clair/{wc.pair}/by_chr/{{chr}}/clair3_normal_germline_output.vcf.gz", 
                                        chr=MAJOR_CHROMOSOMES),
-        doneflags = lambda wc: expand(f"{OUTDIR}/run_clair/{wc.pair}/by_chr/{chr}/done.txt", 
+        doneflags = lambda wc: expand(f"{OUTDIR}/run_clair/{wc.pair}/by_chr/{{chr}}/done.txt", 
                                      chr=MAJOR_CHROMOSOMES)
     output:
         tumor_vcf       = f"{OUTDIR}/run_clair/{{pair}}/{{pair}}.snv.vcf.gz",
         normal_germ_vcf = f"{OUTDIR}/run_clair/{{pair}}/clair3_normal_germline_output.vcf.gz",
         doneflag        = f"{OUTDIR}/run_clair/{{pair}}/done.{{pair}}.txt",
     threads: 4
-    singularity: MODKIT_IMG
+    singularity: ONT_TOOLS_IMG
     log:
         f"{config['logging']['log_dir']}/run_clair/{{pair}}/merge.log"
     params:
@@ -386,7 +394,7 @@ rule filter_pass_tumor:
     output:
         pass_vcf = f"{OUTDIR}/filter_pass/tumor/{{pair}}/{{tumor_id}}.pass.vcf.gz",
         pass_tbi = f"{OUTDIR}/filter_pass/tumor/{{pair}}/{{tumor_id}}.pass.vcf.gz.tbi"
-    singularity: MODKIT_IMG
+    singularity: ONT_TOOLS_IMG
     shell:
         r"""
         mkdir -p $(dirname {output.pass_vcf})
@@ -400,7 +408,7 @@ rule filter_pass_normal:
     output:
         pass_vcf = f"{OUTDIR}/filter_pass/normal/{{pair}}/{{normal_id}}.pass.vcf.gz",
         pass_tbi = f"{OUTDIR}/filter_pass/normal/{{pair}}/{{normal_id}}.pass.vcf.gz.tbi"
-    singularity: MODKIT_IMG
+    singularity: ONT_TOOLS_IMG
     shell:
         r"""
         mkdir -p $(dirname {output.pass_vcf})
@@ -441,7 +449,9 @@ rule longphase_modcall_by_chr:
     input:
         bam = lambda wc: get_sample_bam(wc.sample)
     output:
-        out_modcall = temp(f"{OUTDIR}/longphase_modcall/{{sample}}/by_chr/modcall_{{sample}}_{{chr}}.vcf")
+        out_modcall = temp(f"{OUTDIR}/longphase_modcall/{{sample}}/by_chr/modcall_{{sample}}_{{chr}}.vcf"),
+        out_modcallgz = f"{OUTDIR}/longphase_modcall/{{sample}}/by_chr/modcall_{{sample}}_{{chr}}.vcf.gz",
+        out_modcallTabix = f"{OUTDIR}/longphase_modcall/{{sample}}/by_chr/modcall_{{sample}}_{{chr}}.vcf.gz.tbi"
     params:
         reference_genome = REF,
         threads = THREADS,
@@ -460,11 +470,17 @@ rule longphase_modcall_by_chr:
           -r {params.reference_genome} \
           --region {wildcards.chr} \
         2> {log}
+
+        sed '/^##FORMAT=<ID=DP,/ s/$/>/' {output.out_modcall} | bgzip -c > {output.out_modcallgz}
+        #bgzip -c {output.out_modcall} > {output.out_modcallgz}
+        tabix -p vcf {output.out_modcallgz}
         """
 
 rule merge_longphase_modcall:
     input:
-        vcfs = lambda wc: expand(f"{OUTDIR}/longphase_modcall/{wc.sample}/by_chr/modcall_{wc.sample}_{chr}.vcf", 
+        vcfs = lambda wc: expand(f"{OUTDIR}/longphase_modcall/{wc.sample}/by_chr/modcall_{wc.sample}_{{chr}}.vcf.gz", 
+                                chr=MAJOR_CHROMOSOMES),
+        vcfsIndx = lambda wc: expand(f"{OUTDIR}/longphase_modcall/{wc.sample}/by_chr/modcall_{wc.sample}_{{chr}}.vcf.gz.tbi", 
                                 chr=MAJOR_CHROMOSOMES)
     output:
         out_modcall = f"{OUTDIR}/longphase_modcall/{{sample}}/modcall_{{sample}}.vcf",
@@ -572,6 +588,8 @@ rule mod_SNV_coPhased_haplotagged_tumor:
     output:
         haplotagged_bam = f"{OUTDIR}/mod_SNV_coPhased_haplotagged/{{pair}}/tumor/{{tumor_id}}_haplotagged.bam",
         haplotagged_bai = f"{OUTDIR}/mod_SNV_coPhased_haplotagged/{{pair}}/tumor/{{tumor_id}}_haplotagged.bam.bai",
+        subsampledHaplotagged_bam = f"{OUTDIR}/mod_SNV_coPhased_haplotagged/{{pair}}/tumor/{{tumor_id}}_haplotagged.subsampled.bam",
+        subsampledHaplotagged_bai = f"{OUTDIR}/mod_SNV_coPhased_haplotagged/{{pair}}/tumor/{{tumor_id}}_haplotagged.subsampled.bam.bai",
         done = f"{OUTDIR}/mod_SNV_coPhased_haplotagged/{{pair}}/tumor/done.{{tumor_id}}.txt"
     threads: THREADS
     singularity: ONT_TOOLS_IMG
@@ -589,6 +607,18 @@ rule mod_SNV_coPhased_haplotagged_tumor:
           -o {params.out_haplotagged_prefix} \
         && touch {output.done} 2> {log}
         samtools index {output.haplotagged_bam}
+
+
+        #DELETE AFTER TESTING; CHANGE `SN:17` values 
+        samtools view -h {output.haplotagged_bam} \
+        | awk 'BEGIN{{OFS="\t"}}
+         /^@SQ/ {{ if ($2=="SN:17") print; next }}
+         /^@/  {{ print;      next }}
+                {{ print }}
+        ' \
+        | samtools view -b -o {output.subsampledHaplotagged_bam} -
+        
+        samtools index {output.subsampledHaplotagged_bam}
         """
 
 # ─── 6b) LONGPHASE HAPLOTAG for normal ─────────────────────────────────
@@ -603,6 +633,8 @@ rule mod_SNV_coPhased_haplotagged_normal:
         out_haplotagged_prefix = f"{OUTDIR}/mod_SNV_coPhased_haplotagged/{{pair}}/normal/{{normal_id}}_haplotagged"
     output:
         haplotagged_bam = f"{OUTDIR}/mod_SNV_coPhased_haplotagged/{{pair}}/normal/{{normal_id}}_haplotagged.bam",
+        subsampledHaplotagged_bam = f"{OUTDIR}/mod_SNV_coPhased_haplotagged/{{pair}}/normal/{{normal_id}}_haplotagged.subsampled.bam",
+        subsampledHaplotagged_bai = f"{OUTDIR}/mod_SNV_coPhased_haplotagged/{{pair}}/normal/{{normal_id}}_haplotagged.subsampled.bam.bai",
         haplotagged_bai = f"{OUTDIR}/mod_SNV_coPhased_haplotagged/{{pair}}/normal/{{normal_id}}_haplotagged.bam.bai",
         done = f"{OUTDIR}/mod_SNV_coPhased_haplotagged/{{pair}}/normal/done.{{normal_id}}.txt"
     threads: THREADS
@@ -621,6 +653,17 @@ rule mod_SNV_coPhased_haplotagged_normal:
           -o {params.out_haplotagged_prefix} \
         && touch {output.done} 2> {log}
         samtools index {output.haplotagged_bam}
+
+        #DELETE AFTER TESTING; CHANGE `SN:17` values 
+        samtools view -h {output.haplotagged_bam} \
+        | awk 'BEGIN{{OFS="\t"}}
+         /^@SQ/ {{ if ($2=="SN:17") print; next }}
+         /^@/  {{ print;      next }}
+                {{ print }}
+        ' \
+        | samtools view -b -o {output.subsampledHaplotagged_bam} -
+        
+        samtools index {output.subsampledHaplotagged_bam}
         """
 
 # ─── 7) STRUCTURAL VARIANT CALLING ──────────────────────────
@@ -632,7 +675,7 @@ rule normal_sv:
         snf          = f"{SV_OUTDIR}/{{pair}}/normal/{{normal_id}}.normal.sniffles.snf",
         filtered_vcf = f"{SV_OUTDIR}/{{pair}}/normal/{{normal_id}}.normal.sniffles.filtered.vcf.gz"
     threads: THREADS_SV
-    singularity: SIF_SNIFFLES
+    singularity: ONT_TOOLS_IMG
     log:
         f"logs/sv/{{pair}}/normal/{{normal_id}}.log"
     params:
@@ -659,7 +702,7 @@ rule tumor_sv:
         snf          = f"{SV_OUTDIR}/{{pair}}/tumor/{{tumor_id}}.tumor.sniffles.snf",
         filtered_vcf = f"{SV_OUTDIR}/{{pair}}/tumor/{{tumor_id}}.tumor.sniffles.filtered.vcf.gz"
     threads: THREADS_SV
-    singularity: SIF_SNIFFLES
+    singularity: ONT_TOOLS_IMG
     log:
         f"logs/sv/{{pair}}/tumor/{{tumor_id}}.log"
     params:
@@ -686,7 +729,7 @@ rule somatic_sv:
     output:
         sv_filtered = f"{SV_OUTDIR}/{{pair}}/somatic/{{pair}}.somatic.filtered.sv.vcf.gz"
     threads: THREADS_SV
-    singularity: SIF_SNIFFLES
+    singularity: ONT_TOOLS_IMG
     log:
         f"logs/sv/{{pair}}/somatic.log"
     shell:
@@ -705,7 +748,7 @@ rule somatic_sv:
 # ─── METHYLATION PILEUP for tumor ────────────────────────────
 rule modkit_pileupCpGsBed_tumor:
     input:
-        haplotagged_bam = lambda wc: f"{OUTDIR}/mod_SNV_coPhased_haplotagged/{wc.pair}/tumor/{pair_info[wc.pair]['tumor_id']}_haplotagged.bam"
+        haplotagged_bam = lambda wc: f"{OUTDIR}/mod_SNV_coPhased_haplotagged/{wc.pair}/tumor/{pair_info[wc.pair]['tumor_id']}_haplotagged.subsampled.bam"
     output:
         done = f"{OUTDIR}/modkit_pileupCpGsBed/{{pair}}/tumor/done.{{tumor_id}}.txt",
         mp_phased1_Bed = f"{OUTDIR}/modkit_pileupCpGsBed/{{pair}}/tumor/{{tumor_id}}_1.bed",
@@ -741,7 +784,7 @@ rule modkit_pileupCpGsBed_tumor:
 # ─── METHYLATION PILEUP for normal ────────────────────────────
 rule modkit_pileupCpGsBed_normal:
     input:
-        haplotagged_bam = lambda wc: f"{OUTDIR}/mod_SNV_coPhased_haplotagged/{wc.pair}/normal/{pair_info[wc.pair]['normal_id']}_haplotagged.bam"
+        haplotagged_bam = lambda wc: f"{OUTDIR}/mod_SNV_coPhased_haplotagged/{wc.pair}/normal/{pair_info[wc.pair]['normal_id']}_haplotagged.subsampled.bam"
     output:
         done = f"{OUTDIR}/modkit_pileupCpGsBed/{{pair}}/normal/done.{{normal_id}}.txt",
         mp_phased1_Bed = f"{OUTDIR}/modkit_pileupCpGsBed/{{pair}}/normal/{{normal_id}}_1.bed",
