@@ -60,6 +60,8 @@ MAJOR_CHROMOSOMES = CHROMOSOMES
 # MAJOR_CHROMOSOMES = [c for c in CHROMOSOMES if c.startswith('chr') and not '_' in c]
 # print(f"Using {len(MAJOR_CHROMOSOMES)} major chromosomes for parallel processing")
 
+TYPE = ["tumor", "normal"]
+
 # Computational resources
 THREADS = config["resources"]["threads"]["default"]
 THREADS_SV = config["resources"]["threads"]["sv_calling"]
@@ -156,6 +158,51 @@ rule all:
                zip, pair=PAIRS, tumor_id=[pair_info[p]['tumor_id'] for p in PAIRS]),
         expand(f"{OUTDIR}/mod_SNV_coPhase/{{pair}}/normal/{{normal_id}}_mod.vcf",
                zip, pair=PAIRS, normal_id=[pair_info[p]['normal_id'] for p in PAIRS]),
+        *[
+            expand(
+                f"{OUTDIR}/SNV_SV_MOD_co_phase/{{pair}}/{t}/{{sid}}.phase.{suf}.vcf.gz",
+                zip,
+                pair=PAIRS,
+                sid=[ pair_info[p][f"{t}_id"] for p in PAIRS ]
+            )
+            for t in TYPE
+            for suf in ("snp","sv","mod")
+        ],
+        # the done flags
+        *[
+            expand(
+                f"{OUTDIR}/SNV_SV_MOD_co_phase/{{pair}}/{t}/done.{{sid}}.txt",
+                zip,
+                pair=PAIRS,
+                sid=[ pair_info[p][f"{t}_id"] for p in PAIRS ]
+            )
+            for t in TYPE
+        ],
+        *[
+            expand(
+                f"{OUTDIR}/SNV_SV_MOD_coPhased_haplotagged/{{pair}}/{t}/{{sid}}_haplotagged.{ext}",
+                zip,
+                pair=PAIRS,
+                sid=[ pair_info[p][f"{t}_id"] for p in PAIRS ],
+            )
+            for t in TYPE
+            for ext in ("bam", "bam.bai", "subsampled.bam", "subsampled.bam.bai")
+        ],
+        # done flags
+        *[
+            expand(
+                f"{OUTDIR}/SNV_SV_MOD_coPhased_haplotagged/{{pair}}/{t}/done.{{sid}}.txt",
+                zip,
+                pair=PAIRS,
+                sid=[ pair_info[p][f"{t}_id"] for p in PAIRS ],
+            )
+            for t in TYPE
+        ],
+## Pair-specific mod-snv-sv co-phasing
+        # expand(f"{OUTDIR}/mod_SNV_coPhase/{{pair}}/tumor/{{tumor_id}}_mod.vcf",
+        #        zip, pair=PAIRS, tumor_id=[pair_info[p]['tumor_id'] for p in PAIRS]),
+        # expand(f"{OUTDIR}/mod_SNV_coPhase/{{pair}}/normal/{{normal_id}}_mod.vcf",
+        #        zip, pair=PAIRS, normal_id=[pair_info[p]['normal_id'] for p in PAIRS]),
 
         # Haplotagged BAMs
         expand(f"{OUTDIR}/mod_SNV_coPhased_haplotagged/{{pair}}/tumor/{{tumor_id}}_haplotagged.bam",
@@ -179,6 +226,24 @@ rule all:
         expand(f"{OUTDIR}/modkit_pileupCpGsBed/{{pair}}/tumor/{{tumor_id}}_{{haplotype}}.bed",
                pair=PAIRS, tumor_id=[pair_info[p]['tumor_id'] for p in PAIRS], haplotype=haplotypes),
         expand(f"{OUTDIR}/modkit_pileupCpGsBed/{{pair}}/normal/{{normal_id}}_{{haplotype}}.bed",
+               pair=PAIRS, normal_id=[pair_info[p]['normal_id'] for p in PAIRS], haplotype=haplotypes),
+
+
+        expand(f"{OUTDIR}/highQual_modkit_pileup_sortTabixBed/{{pair}}/tumor/{{tumor_id}}_{{haplotype}}_sorted.bed",
+               pair=PAIRS, tumor_id=[pair_info[p]['tumor_id'] for p in PAIRS], haplotype=haplotypes),
+        expand(f"{OUTDIR}/highQual_modkit_pileup_sortTabixBed/{{pair}}/normal/{{normal_id}}_{{haplotype}}_sorted.bed.gz",
+               pair=PAIRS, normal_id=[pair_info[p]['normal_id'] for p in PAIRS], haplotype=haplotypes),
+
+            # methylation sort tabix outputs;
+        expand(f"{OUTDIR}/modkit_pileup_sortTabixBed/{{pair}}/tumor/{{tumor_id}}_{{haplotype}}_sorted.bed",
+               pair=PAIRS, tumor_id=[pair_info[p]['tumor_id'] for p in PAIRS], haplotype=haplotypes),
+        expand(f"{OUTDIR}/modkit_pileup_sortTabixBed/{{pair}}/normal/{{normal_id}}_{{haplotype}}_sorted.bed.gz",
+               pair=PAIRS, normal_id=[pair_info[p]['normal_id'] for p in PAIRS], haplotype=haplotypes),
+
+            # High-quality methylation outputs
+        expand(f"{OUTDIR}/highQual_modkit_pileup_sortTabixBed/{{pair}}/tumor/{{tumor_id}}_{{haplotype}}_sorted.bed",
+               pair=PAIRS, tumor_id=[pair_info[p]['tumor_id'] for p in PAIRS], haplotype=haplotypes),
+        expand(f"{OUTDIR}/highQual_modkit_pileup_sortTabixBed/{{pair}}/normal/{{normal_id}}_{{haplotype}}_sorted.bed.gz",
                pair=PAIRS, normal_id=[pair_info[p]['normal_id'] for p in PAIRS], haplotype=haplotypes),
 
         # DMR outputs
@@ -666,6 +731,123 @@ rule mod_SNV_coPhased_haplotagged_normal:
         samtools index {output.subsampledHaplotagged_bam}
         """
 
+# ─── 8) SNV-SV-MOD CO-PHASING ─────────────────────────────────────────────
+rule longphase_SNV_SV_MOD_co_phase:
+    """
+    Co-phase SNPs, SVs and 5mC modifications in one LongPhase invocation.
+    Produces three phased VCFs (snp, sv, mod) plus a done file.
+    """
+    input:
+        bam     = lambda wc: pair_info[wc.pair][f"{wc.type}_bam"],
+        snp_vcf = f"{OUTDIR}/filter_pass/{{type}}/{{pair}}/{{sample_id}}.pass.vcf.gz",
+        sv_vcf  = f"{SV_OUTDIR}/{{pair}}/{{type}}/{{sample_id}}.{{type}}.sniffles.filtered.vcf.gz",
+        mod_vcf = f"{OUTDIR}/longphase_modcall/{{sample_id}}/modcall_{{sample_id}}.vcf"
+    output:
+        tmp_phased_snp = f"{OUTDIR}/SNV_SV_MOD_co_phase/{{pair}}/{{type}}/{{sample_id}}.vcf",
+        tmp_phased_sv  = f"{OUTDIR}/SNV_SV_MOD_co_phase/{{pair}}/{{type}}/{{sample_id}}_SV.vcf",
+        tmp_phased_mod = f"{OUTDIR}/SNV_SV_MOD_co_phase/{{pair}}/{{type}}/{{sample_id}}_mod.vcf",
+        # Temporary files to handle a bug in LongPhase
+        tmp2_phased_snp = f"{OUTDIR}/SNV_SV_MOD_co_phase/{{pair}}/{{type}}/{{sample_id}}.phase.snp.vcf",
+        tmp2_phased_sv  = f"{OUTDIR}/SNV_SV_MOD_co_phase/{{pair}}/{{type}}/{{sample_id}}.phase.sv.vcf",
+        tmp2_phased_mod = f"{OUTDIR}/SNV_SV_MOD_co_phase/{{pair}}/{{type}}/{{sample_id}}.phase.mod.vcf",
+        # Final phased VCFs
+        phased_snp = f"{OUTDIR}/SNV_SV_MOD_co_phase/{{pair}}/{{type}}/{{sample_id}}.phase.snp.vcf.gz",
+        phased_sv  = f"{OUTDIR}/SNV_SV_MOD_co_phase/{{pair}}/{{type}}/{{sample_id}}.phase.sv.vcf.gz",
+        phased_mod = f"{OUTDIR}/SNV_SV_MOD_co_phase/{{pair}}/{{type}}/{{sample_id}}.phase.mod.vcf.gz",
+        done       = f"{OUTDIR}/SNV_SV_MOD_co_phase/{{pair}}/{{type}}/done.{{sample_id}}.txt"
+    params:
+        ref     = REF,
+        threads = THREADS
+    singularity: ONT_TOOLS_IMG
+    threads: THREADS
+    log:
+        f"{config['logging']['log_dir']}/SNV_SV_MOD_co_phase/{{pair}}/{{type}}/{{sample_id}}.log"
+    shell:
+        r"""
+        mkdir -p {OUTDIR}/SNV_SV_MOD_co_phase/{wildcards.pair}/{wildcards.type}
+
+        longphase phase \
+          -s {input.snp_vcf} \
+          --sv-file {input.sv_vcf} \
+          --mod-file {input.mod_vcf} \
+          -b {input.bam} \
+          -r {params.ref} \
+          -t {params.threads} \
+          -o {OUTDIR}/SNV_SV_MOD_co_phase/{wildcards.pair}/{wildcards.type}/{wildcards.sample_id} \
+          --ont \
+        2>&1 | tee {log}
+
+        #UNTIL LONGPHASE FIXES THIS BUG, we need to rename the output files
+        mv {output.tmp_phased_snp} {output.tmp2_phased_snp}
+        mv {output.tmp_phased_sv} {output.tmp2_phased_sv}
+        mv {output.tmp_phased_mod} {output.tmp2_phased_mod} 
+
+        # compress & index each output VCF
+        bgzip -f {output.tmp2_phased_snp}
+        bgzip -f {output.tmp2_phased_sv}
+        bgzip -f {output.tmp2_phased_mod}
+
+        tabix -p vcf {output.phased_snp}
+        tabix -p vcf {output.phased_sv}
+        tabix -p vcf {output.phased_mod}
+
+        touch {output.done}
+        """
+
+rule SNV_SV_MOD_haplotag:
+    """
+    Haplotag a co-phased SNV+SV+mod VCF trio in one go, for either tumor or normal.
+    """
+    input:
+        bam         = lambda wc: pair_info[wc.pair][f"{wc.type}_bam"],
+        phased_snp  = f"{OUTDIR}/SNV_SV_MOD_co_phase/{{pair}}/{{type}}/{{sample}}.phase.snp.vcf.gz",
+        phased_sv   = f"{OUTDIR}/SNV_SV_MOD_co_phase/{{pair}}/{{type}}/{{sample}}.phase.sv.vcf.gz",
+        phased_mod  = f"{OUTDIR}/SNV_SV_MOD_co_phase/{{pair}}/{{type}}/{{sample}}.phase.mod.vcf.gz"
+    output:
+        hap_bam     = f"{OUTDIR}/SNV_SV_MOD_coPhased_haplotagged/{{pair}}/{{type}}/{{sample}}_haplotagged.bam",
+        hap_bai     = f"{OUTDIR}/SNV_SV_MOD_coPhased_haplotagged/{{pair}}/{{type}}/{{sample}}_haplotagged.bam.bai",
+        sub_bam     = f"{OUTDIR}/SNV_SV_MOD_coPhased_haplotagged/{{pair}}/{{type}}/{{sample}}_haplotagged.subsampled.bam",
+        sub_bai     = f"{OUTDIR}/SNV_SV_MOD_coPhased_haplotagged/{{pair}}/{{type}}/{{sample}}_haplotagged.subsampled.bam.bai",
+        done        = f"{OUTDIR}/SNV_SV_MOD_coPhased_haplotagged/{{pair}}/{{type}}/done.{{sample}}.txt"
+    params:
+        out_prefix  = f"{OUTDIR}/SNV_SV_MOD_coPhased_haplotagged/{{pair}}/{{type}}/{{sample}}_haplotagged"
+    threads: THREADS
+    singularity: ONT_TOOLS_IMG
+    log:
+        f"{config['logging']['log_dir']}/haplotag/{{pair}}/{{type}}/{{sample}}.log"
+    shell:
+        r"""
+        mkdir -p {OUTDIR}/SNV_SV_MOD_coPhased_haplotagged/{wildcards.pair}/{wildcards.type}
+
+        longphase haplotag \
+          -s {input.phased_snp} \
+          --sv-file {input.phased_sv} \
+          --mod-file {input.phased_mod} \
+          -b {input.bam} \
+          -r {REF} \
+          -t {threads} \
+          -o {params.out_prefix} \
+        2>&1 | tee {log}
+
+        # index the full haplotagged BAM
+        samtools index {output.hap_bam}
+
+        # subsample out only chr17 (or whatever filtering you want)
+        samtools view -h {output.hap_bam} \
+        | awk 'BEGIN{{OFS="\t"}}
+           /^@SQ/ {{ if ($2=="SN:17") print; next }}
+           /^@/  {{ print;      next }}
+                  {{ print }}
+        ' \
+        | samtools view -b -o {output.sub_bam}
+
+        samtools index {output.sub_bam}
+
+        touch {output.done}
+        """
+
+
+
 # ─── 7) STRUCTURAL VARIANT CALLING ──────────────────────────
 rule normal_sv:
     input:
@@ -817,11 +999,106 @@ rule modkit_pileupCpGsBed_normal:
         {input.haplotagged_bam} {params.outdir} && touch {output.done} 2>&1 | tee -a {log}
         """
 
+rule modkit_pileup_sortTabixBedNormal:
+    input:
+        bed= f"{OUTDIR}/modkit_pileupCpGsBed/{{pair}}/normal/{{normal_id}}_{{haplotype}}.bed"
+    output:
+        sorted_bed= f"{OUTDIR}/modkit_pileup_sortTabixBed/{{pair}}/normal/{{normal_id}}_{{haplotype}}_sorted.bed",
+        sorted_tabixed= f"{OUTDIR}/modkit_pileup_sortTabixBed/{{pair}}/normal/{{normal_id}}_{{haplotype}}_sorted.bed.gz"
+    singularity: MODKIT_IMG
+    params:
+        mincov= minCov
+    threads: THREADS
+    shell:
+        """
+        echo "Sorting and filtering {input.bed} for min coverage {params.mincov}"
+        sort -k1,1 -k2,2n {input.bed} > {output.sorted_bed} 
+        bgzip -c {output.sorted_bed} > {output.sorted_tabixed}
+        tabix -p bed {output.sorted_tabixed}
+        """
+rule modkit_pileup_sortTabixBedTumor:
+    input:
+        bed= f"{OUTDIR}/modkit_pileupCpGsBed/{{pair}}/tumor/{{tumor_id}}_{{haplotype}}.bed"
+    output:
+        sorted_bed= f"{OUTDIR}/modkit_pileup_sortTabixBed/{{pair}}/tumor/{{tumor_id}}_{{haplotype}}_sorted.bed",
+        sorted_tabixed= f"{OUTDIR}/modkit_pileup_sortTabixBed/{{pair}}/tumor/{{tumor_id}}_{{haplotype}}_sorted.bed.gz"
+    singularity: MODKIT_IMG
+    params:
+        mincov= minCov
+    threads: THREADS
+    shell:
+        """
+        echo "Sorting and filtering {input.bed} for min coverage {params.mincov}"
+        sort -k1,1 -k2,2n {input.bed} > {output.sorted_bed} 
+        bgzip -c {output.sorted_bed} > {output.sorted_tabixed}
+        tabix -p bed {output.sorted_tabixed}
+        """
+
+rule highQual_modkit_pileup_sortTabixBedNormal:
+    input:
+        bed= f"{OUTDIR}/modkit_pileupCpGsBed/{{pair}}/normal/{{normal_id}}_{{haplotype}}.bed"
+    output:
+        sorted_bed= f"{OUTDIR}/highQual_modkit_pileup_sortTabixBed/{{pair}}/normal/{{normal_id}}_{{haplotype}}_sorted.bed",
+        sorted_tabixed= f"{OUTDIR}/highQual_modkit_pileup_sortTabixBed/{{pair}}/normal/{{normal_id}}_{{haplotype}}_sorted.bed.gz"
+    singularity: MODKIT_IMG
+    params:
+        mincov= minCov
+    threads: THREADS
+    shell:
+        """
+        echo "Sorting and filtering {input.bed} for min coverage {params.mincov}"
+        sort -k1,1 -k2,2n {input.bed} | awk -v min_cov={params.mincov} '$5 >= min_cov' > {output.sorted_bed} 
+        bgzip -c {output.sorted_bed} > {output.sorted_tabixed}
+        tabix -p bed {output.sorted_tabixed}
+        """
+
+rule highQual_modkit_pileup_sortTabixBedTumor:
+    input:
+        bed= f"{OUTDIR}/modkit_pileupCpGsBed/{{pair}}/tumor/{{tumor_id}}_{{haplotype}}.bed"
+    output:
+        sorted_bed= f"{OUTDIR}/highQual_modkit_pileup_sortTabixBed/{{pair}}/tumor/{{tumor_id}}_{{haplotype}}_sorted.bed",
+        sorted_tabixed= f"{OUTDIR}/highQual_modkit_pileup_sortTabixBed/{{pair}}/tumor/{{tumor_id}}_{{haplotype}}_sorted.bed.gz"
+    singularity: MODKIT_IMG
+    params:
+        mincov= minCov
+    threads: THREADS
+    shell:
+        """
+        echo "Sorting and filtering {input.bed} for min coverage {params.mincov}"
+        sort -k1,1 -k2,2n {input.bed} | awk -v min_cov={params.mincov} '$5 >= min_cov' > {output.sorted_bed} 
+        bgzip -c {output.sorted_bed} > {output.sorted_tabixed}
+        tabix -p bed {output.sorted_tabixed}
+        """
+
+# rule highQual_modkit_pileup_5mC_5hmC_BigWigs:
+#     input:
+#         bed= f"{OUTDIR}/highQual_modkit_pileup_5mC_5hmC_sortTabixBed/{{sample}}/{{sample}}_{{haplotypes}}_sorted.bed"
+#     output:
+#         bedmethyl= f"{OUTDIR}/highQual_modkit_pileup_5mC_5hmC_BigWigs/{{sample}}/{{sample}}_{{haplotypes}}_{{mod}}_sorted.bw"
+#     singularity: MODKIT_IMG
+#     params:
+#         ref= REF,
+#         genomeSizes = GENOMESIZES
+#     threads: THREADS
+#     log:
+#         "logs/highQual_modkit_pileup_5mC_5hmC_BigWigs/{sample}/{sample}_{haplotypes}_{mod}_sorted.log"
+#     shell:
+#         """
+#         echo "Converting {input.bed} to bedmethyl format"
+#         modkit bedmethyl tobigwig --mod-codes {wildcards.mod} \
+#         --suppress-progress \
+#         --nthreads {threads} \
+#         --sizes {params.genomeSizes} \
+#         --log-filepath {log} \
+#           {input.bed} {output.bedmethyl}
+#         """
+
+
 # ─── DMR ANALYSIS ────────────────────────────
 rule modkit_dmr_pair:
     input:
-        tumor_bed = lambda wc: f"{OUTDIR}/modkit_pileupCpGsBed/{wc.pair}/tumor/{pair_info[wc.pair]['tumor_id']}_{wc.haplotype}.bed",
-        normal_bed = lambda wc: f"{OUTDIR}/modkit_pileupCpGsBed/{wc.pair}/normal/{pair_info[wc.pair]['normal_id']}_{wc.haplotype}.bed"
+        tumor_bed = lambda wc: f"{OUTDIR}/modkit_pileup_sortTabixBed/{wc.pair}/tumor/{pair_info[wc.pair]['tumor_id']}_{wc.haplotype}_sorted.bed.gz",
+        normal_bed = lambda wc: f"{OUTDIR}/modkit_pileup_sortTabixBed/{wc.pair}/normal/{pair_info[wc.pair]['normal_id']}_{wc.haplotype}_sorted.bed.gz"
     output:
         dmr_diff = f"{OUTDIR}/modkit_dmr_pairCpGs/{{pair}}/HP{{haplotype}}/{{pair}}_HP{{haplotype}}_TumorNormal_dmr_diff.bed.gz"
     singularity: MODKIT_IMG
@@ -850,3 +1127,6 @@ rule modkit_dmr_pair:
         tabix -p bed {output.dmr_diff}
         rm -f {output.dmr_diff}.tmp
         """
+
+        #         sorted_bed= f"{OUTDIR}/modkit_pileup_sortTabixBedTumor/{{pair}}/tumor/{{tumor_id}}_{{haplotype}}_sorted.bed",
+        # sorted_tabixed= f"{OUTDIR}/modkit_pileup_sortTabixBedTumor/{{pair}}/tumor/{{tumor_id}}_{{haplotype}}_sorted.bed.gz"
