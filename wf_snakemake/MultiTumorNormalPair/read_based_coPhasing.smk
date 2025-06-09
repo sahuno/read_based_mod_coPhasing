@@ -747,9 +747,9 @@ rule longphase_SNV_SV_MOD_co_phase:
         tmp_phased_sv  = f"{OUTDIR}/SNV_SV_MOD_co_phase/{{pair}}/{{type}}/{{sample_id}}_SV.vcf",
         tmp_phased_mod = f"{OUTDIR}/SNV_SV_MOD_co_phase/{{pair}}/{{type}}/{{sample_id}}_mod.vcf",
         # Temporary files to handle a bug in LongPhase
-        tmp2_phased_snp = f"{OUTDIR}/SNV_SV_MOD_co_phase/{{pair}}/{{type}}/{{sample_id}}.phase.snp.vcf",
-        tmp2_phased_sv  = f"{OUTDIR}/SNV_SV_MOD_co_phase/{{pair}}/{{type}}/{{sample_id}}.phase.sv.vcf",
-        tmp2_phased_mod = f"{OUTDIR}/SNV_SV_MOD_co_phase/{{pair}}/{{type}}/{{sample_id}}.phase.mod.vcf",
+        #tmp2_phased_snp = f"{OUTDIR}/SNV_SV_MOD_co_phase/{{pair}}/{{type}}/{{sample_id}}.phase.snp.vcf",
+        #tmp2_phased_sv  = f"{OUTDIR}/SNV_SV_MOD_co_phase/{{pair}}/{{type}}/{{sample_id}}.phase.sv.vcf",
+        #tmp2_phased_mod = f"{OUTDIR}/SNV_SV_MOD_co_phase/{{pair}}/{{type}}/{{sample_id}}.phase.mod.vcf",
         # Final phased VCFs
         phased_snp = f"{OUTDIR}/SNV_SV_MOD_co_phase/{{pair}}/{{type}}/{{sample_id}}.phase.snp.vcf.gz",
         phased_sv  = f"{OUTDIR}/SNV_SV_MOD_co_phase/{{pair}}/{{type}}/{{sample_id}}.phase.sv.vcf.gz",
@@ -778,14 +778,14 @@ rule longphase_SNV_SV_MOD_co_phase:
         2>&1 | tee {log}
 
         #UNTIL LONGPHASE FIXES THIS BUG, we need to rename the output files
-        mv {output.tmp_phased_snp} {output.tmp2_phased_snp}
-        mv {output.tmp_phased_sv} {output.tmp2_phased_sv}
-        mv {output.tmp_phased_mod} {output.tmp2_phased_mod} 
+        #mv {output.tmp_phased_snp} {output.tmp2_phased_snp}
+        #mv {output.tmp_phased_sv} {output.tmp2_phased_sv}
+        #mv {output.tmp_phased_mod} {output.tmp2_phased_mod} 
 
         # compress & index each output VCF
-        bgzip -f {output.tmp2_phased_snp}
-        bgzip -f {output.tmp2_phased_sv}
-        bgzip -f {output.tmp2_phased_mod}
+        bgzip -f {output.tmp_phased_snp} > {output.phased_snp}
+        bgzip -f {output.tmp_phased_sv} > {output.phased_sv}
+        bgzip -f {output.tmp_phased_mod} > {output.phased_mod}
 
         tabix -p vcf {output.phased_snp}
         tabix -p vcf {output.phased_sv}
