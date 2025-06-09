@@ -777,15 +777,12 @@ rule longphase_SNV_SV_MOD_co_phase:
           --ont \
         2>&1 | tee {log}
 
-        #UNTIL LONGPHASE FIXES THIS BUG, we need to rename the output files
-        #mv {output.tmp_phased_snp} {output.tmp2_phased_snp}
-        #mv {output.tmp_phased_sv} {output.tmp2_phased_sv}
-        #mv {output.tmp_phased_mod} {output.tmp2_phased_mod} 
+
 
         # compress & index each output VCF
-        bgzip -f {output.tmp_phased_snp} > {output.phased_snp}
-        bgzip -f {output.tmp_phased_sv} > {output.phased_sv}
-        bgzip -f {output.tmp_phased_mod} > {output.phased_mod}
+        bgzip -f {output.tmp_phased_snp} -o {output.phased_snp}
+        bgzip -f {output.tmp_phased_sv} -o {output.phased_sv}
+        bgzip -f {output.tmp_phased_mod} -o {output.phased_mod}
 
         tabix -p vcf {output.phased_snp}
         tabix -p vcf {output.phased_sv}
@@ -793,6 +790,11 @@ rule longphase_SNV_SV_MOD_co_phase:
 
         touch {output.done}
         """
+
+        #UNTIL LONGPHASE FIXES THIS BUG, we need to rename the output files
+        #mv {output.tmp_phased_snp} {output.tmp2_phased_snp}
+        #mv {output.tmp_phased_sv} {output.tmp2_phased_sv}
+        #mv {output.tmp_phased_mod} {output.tmp2_phased_mod} 
 
 rule SNV_SV_MOD_haplotag:
     """
