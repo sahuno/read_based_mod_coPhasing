@@ -308,7 +308,9 @@ rule all:
         # DMR outputs
         expand(f"{OUTDIR}/modkit_dmr_pairCpGs/{{pair}}/HP{{haplotype}}/{{pair}}_HP{{haplotype}}_TumorNormal_dmr_diff.bed.gz",
                pair=PAIRS, haplotype=haplotypes),
-
+        expand(f"{OUTDIR}/modkit_dmr_pairCpGs/{{pair}}/HP{{haplotype}}/{{pair}}_HP{{haplotype}}_TumorNormal_raw_segmentation.bed.gz",
+               pair=PAIRS, haplotype=haplotypes),
+#        seg_file = f"{OUTDIR}/modkit_dmr_pairCpGs/{{pair}}/HP{{haplotype}}/{{pair}}_HP{{haplotype}}_TumorNormal_raw_segmentation.bed.gz"
 ##DMR unphased
         *[
             expand(
@@ -1143,6 +1145,7 @@ rule modkit_dmr_unphased_TN:
           -a {input.normal_bed} \
           -b {input.tumor_bed} \
           --ref {params.ref} \
+          --min-valid-coverage {params.mincov} \
           --base {params.base} \
           --min-valid-coverage {params.mincov} \
           --threads {threads} \
@@ -1172,76 +1175,53 @@ rule modkit_dmr_unphased_TN:
 
 #--prefix {wildcards.sample_id} \
 # ─── METHYLATION PILEUP for tumor ────────────────────────────
-rule modkit_pileupCpGsBed_tumor:
+rule modkit_pileupCpGsBed:
+    """
+    Run modkit pileup for either tumor or normal haplotagged BAMs,
+    writing three bed outputs plus a done flag.
+    """
     input:
-        haplotagged_bam = lambda wc: f"{OUTDIR}/mod_SNV_coPhased_haplotagged/{wc.pair}/tumor/{pair_info[wc.pair]['tumor_id']}_haplotagged.subsampled.bam"
+        haplotagged_bam = (
+            f"{OUTDIR}/mod_SNV_coPhased_haplotagged/"
+            f"{{pair}}/{{type}}/{{sample_id}}_haplotagged.subsampled.bam"
+        )
     output:
-        done = f"{OUTDIR}/modkit_pileupCpGsBed/{{pair}}/tumor/done.{{tumor_id}}.txt",
-        mp_phased1_Bed = f"{OUTDIR}/modkit_pileupCpGsBed/{{pair}}/tumor/{{tumor_id}}_1.bed",
-        mp_phased2_Bed = f"{OUTDIR}/modkit_pileupCpGsBed/{{pair}}/tumor/{{tumor_id}}_2.bed",
-        mp_phasedUngrouped_Bed = f"{OUTDIR}/modkit_pileupCpGsBed/{{pair}}/tumor/{{tumor_id}}_ungrouped.bed",
-    singularity: MODKIT_IMG
+        mp1   = f"{OUTDIR}/modkit_pileupCpGsBed/{{pair}}/{{type}}/{{sample_id}}_1.bed",
+        mp2   = f"{OUTDIR}/modkit_pileupCpGsBed/{{pair}}/{{type}}/{{sample_id}}_2.bed",
+        mpU   = f"{OUTDIR}/modkit_pileupCpGsBed/{{pair}}/{{type}}/{{sample_id}}_ungrouped.bed",
+        done  = f"{OUTDIR}/modkit_pileupCpGsBed/{{pair}}/{{type}}/done.{{sample_id}}.txt"
     params:
-        ref = REF,
-        mincov = config["methylation"]["modkit"]["min_coverage"],
-        filter_threshold = config["methylation"]["modkit"]["filter_threshold"],
-        sampling_frac = config["methylation"]["modkit"]["sampling_fraction"],
+        ref             = REF,
+        mincov          = config["methylation"]["modkit"]["min_coverage"],
+        filter_threshold= config["methylation"]["modkit"]["filter_threshold"],
+        sampling_frac   = config["methylation"]["modkit"]["sampling_fraction"],
         combine_strands = "--combine-strands" if config["methylation"]["modkit"]["combine_strands"] else "",
-        cpg_only = "--cpg" if config["methylation"]["modkit"]["cpg_only"] else "",
-        partition_tag = config["phasing"]["longphase"]["partition_tag"],
-        outdir = f"{OUTDIR}/modkit_pileupCpGsBed/{{pair}}/tumor/"
+        cpg_only        = "--cpg"             if config["methylation"]["modkit"]["cpg_only"] else "",
+        outdir          = lambda wc: f"{OUTDIR}/modkit_pileupCpGsBed/{wc.pair}/{wc.type}/",
+        prefix = lambda wc: wc.sample_id
     threads: THREADS
+    singularity: MODKIT_IMG
     log:
-        f"{config['logging']['log_dir']}/modkit_pileup/{{pair}}/tumor/{{tumor_id}}.log"
+        f"{config['logging']['log_dir']}/modkit_pileupCpGsBed/{{pair}}/{{type}}/{{sample_id}}.log"
     shell:
         r"""
         mkdir -p {params.outdir}
-        modkit pileup \
-        --ref {params.ref} \
-        {params.cpg_only} {params.combine_strands} \
-        --filter-threshold {params.filter_threshold} \
-        --sampling-frac {params.sampling_frac} \
-        --threads {threads} \
-        --prefix {wildcards.tumor_id} \
-        --partition-tag {params.partition_tag} \
-        {input.haplotagged_bam} {params.outdir} && touch {output.done} 2>&1 | tee -a {log}
-        """
 
-# ─── METHYLATION PILEUP for normal ────────────────────────────
-rule modkit_pileupCpGsBed_normal:
-    input:
-        haplotagged_bam = lambda wc: f"{OUTDIR}/mod_SNV_coPhased_haplotagged/{wc.pair}/normal/{pair_info[wc.pair]['normal_id']}_haplotagged.subsampled.bam"
-    output:
-        done = f"{OUTDIR}/modkit_pileupCpGsBed/{{pair}}/normal/done.{{normal_id}}.txt",
-        mp_phased1_Bed = f"{OUTDIR}/modkit_pileupCpGsBed/{{pair}}/normal/{{normal_id}}_1.bed",
-        mp_phased2_Bed = f"{OUTDIR}/modkit_pileupCpGsBed/{{pair}}/normal/{{normal_id}}_2.bed",
-        mp_phasedUngrouped_Bed = f"{OUTDIR}/modkit_pileupCpGsBed/{{pair}}/normal/{{normal_id}}_ungrouped.bed",
-    singularity: MODKIT_IMG
-    params:
-        ref = REF,
-        mincov = config["methylation"]["modkit"]["min_coverage"],
-        filter_threshold = config["methylation"]["modkit"]["filter_threshold"],
-        sampling_frac = config["methylation"]["modkit"]["sampling_fraction"],
-        combine_strands = "--combine-strands" if config["methylation"]["modkit"]["combine_strands"] else "",
-        cpg_only = "--cpg" if config["methylation"]["modkit"]["cpg_only"] else "",
-        partition_tag = config["phasing"]["longphase"]["partition_tag"],
-        outdir = f"{OUTDIR}/modkit_pileupCpGsBed/{{pair}}/normal/"
-    threads: THREADS
-    log:
-        f"{config['logging']['log_dir']}/modkit_pileup/{{pair}}/normal/{{normal_id}}.log"
-    shell:
-        r"""
-        mkdir -p {params.outdir}
         modkit pileup \
-        --ref {params.ref} \
-        {params.cpg_only} {params.combine_strands} \
-        --filter-threshold {params.filter_threshold} \
-        --sampling-frac {params.sampling_frac} \
-        --threads {threads} \
-        --prefix {wildcards.normal_id} \
-        --partition-tag {params.partition_tag} \
-        {input.haplotagged_bam} {params.outdir} && touch {output.done} 2>&1 | tee -a {log}
+          --ref {params.ref} \
+          {params.cpg_only} {params.combine_strands} \
+          --filter-threshold {params.filter_threshold} \
+          --sampling-frac {params.sampling_frac} \
+          --threads {threads} \
+          --partition-tag HP \
+          --prefix {params.prefix} \
+          {input.haplotagged_bam} \
+          {params.outdir} \
+        2>&1 | tee -a {log}
+
+        touch {output.done}
         """
+#          --prefix {wildcards.sample_id} \
 
 rule modkit_pileup_sortTabixBedNormal:
     input:
@@ -1344,11 +1324,14 @@ rule modkit_dmr_pair:
         tumor_bed = lambda wc: f"{OUTDIR}/modkit_pileup_sortTabixBed/{wc.pair}/tumor/{pair_info[wc.pair]['tumor_id']}_{wc.haplotype}_sorted.bed.gz",
         normal_bed = lambda wc: f"{OUTDIR}/modkit_pileup_sortTabixBed/{wc.pair}/normal/{pair_info[wc.pair]['normal_id']}_{wc.haplotype}_sorted.bed.gz"
     output:
-        dmr_diff = f"{OUTDIR}/modkit_dmr_pairCpGs/{{pair}}/HP{{haplotype}}/{{pair}}_HP{{haplotype}}_TumorNormal_dmr_diff.bed.gz"
+        dmr_diff = f"{OUTDIR}/modkit_dmr_pairCpGs/{{pair}}/HP{{haplotype}}/{{pair}}_HP{{haplotype}}_TumorNormal_dmr_diff.bed.gz",
+        seg_file = f"{OUTDIR}/modkit_dmr_pairCpGs/{{pair}}/HP{{haplotype}}/{{pair}}_HP{{haplotype}}_TumorNormal_raw_segmentation.bed.gz"
+
     singularity: MODKIT_IMG
     params:
         ref = REF,
-        mincov = minCov
+        mincov = minCov,
+        base           = "C"
     threads: THREADS
     log:
         f"{config['logging']['log_dir']}/dmr/{{pair}}/HP{{haplotype}}/dmr.log"
@@ -1361,15 +1344,22 @@ rule modkit_dmr_pair:
             -a {input.tumor_bed} \
             -b {input.normal_bed} \
             --ref {params.ref} \
-            --base C \
+            --base {params.base} \
+            --min-valid-coverage {params.mincov} \
             --threads {threads} \
             --log-filepath {output.dmr_diff}.log \
-            -o {output.dmr_diff}.tmp 2>&1 | tee -a {log}
+            --segment {output.raw_seg}.tmp \
+            -o {output.dmr_diff}.tmp \
+            2>&1 | tee -a {log}
         
         # Sort and compress
         sort -k1,1 -k2,2n {output.dmr_diff}.tmp | bgzip -c > {output.dmr_diff}
         tabix -p bed {output.dmr_diff}
         rm -f {output.dmr_diff}.tmp
+
+        sort -k1,1 -k2,2n {output.seg_file}.tmp | bgzip -c > {output.seg_file}
+        tabix -p bed {output.seg_file}
+        rm -f {output.seg_file}.tmp
         """
 
         #         sorted_bed= f"{OUTDIR}/modkit_pileup_sortTabixBedTumor/{{pair}}/tumor/{{tumor_id}}_{{haplotype}}_sorted.bed",

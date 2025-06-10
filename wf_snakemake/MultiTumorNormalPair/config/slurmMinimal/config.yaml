@@ -138,6 +138,13 @@ set-resources:
         nodes: 1
         mem_mb_per_cpu: 64000
         cpus_per_task: 4    
+    modkit_pileupCpGsBed:
+        slurm_partition: "cpushort"
+        slurm_account: "greenbab"
+        runtime: 120
+        nodes: 1
+        mem_mb_per_cpu: 64000
+        cpus_per_task: 4 
 # methylartist_locus
         #pileup_and_tracks_minCov
     # merge_bams:
