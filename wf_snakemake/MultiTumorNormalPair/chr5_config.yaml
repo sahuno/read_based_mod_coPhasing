@@ -1,0 +1,125 @@
+# Configuration file for Tumor-Normal methylation analysis workflow
+
+# ─────────────────────────────────────────────────────────────────────────────
+# INPUT/OUTPUT PATHS
+# ─────────────────────────────────────────────────────────────────────────────
+samples_file: "/data1/greenbab/users/ahunos/apps/workflows/methylation_workflows/read_based_mod_coPhasing/wf_snakemake/MultiTumorNormalPair/GET_CLAIR_MODELS/results/summary/complete_summary.csv"
+
+# Uncomment for testing on chr19:
+# samples_file: "/data1/greenbab/projects/Sarcoma_DNAme/data/processed/t2t_analysis/subset_modBam/results/chr19_subset/manifest_chr19_bams.tsv"
+
+output_dir: "results"
+sv_output_dir: "results/sv"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# REFERENCE FILES AND DATABASES
+# ─────────────────────────────────────────────────────────────────────────────
+reference:
+  # genome: "/data1/shahs3/isabl_data_lake/assemblies/GRCh37/GRCh37-lite/GRCh37-lite.fa"
+  genome: "/data1/greenbab/database/human_GRCh37/GRCh37-lite_5.fa"
+  # tandem_repeats: "/data1/greenbab/database/human_GRCh37/human_hs37d5.trf.bed" 
+  tandem_repeats: "/data1/greenbab/database/human_GRCh37/human_hs37d5_chr5.trf.bed"
+  # genome_sizes: "/data1/shahs3/isabl_data_lake/assemblies/GRCh37/GRCh37-lite/GRCh37_lite.genome.sizes"
+  genome_sizes: "/data1/greenbab/database/human_GRCh37/GRCh37-lite_5.genome"
+  contig: null  # Set to null to process all contigs
+
+# REF          = "/data1/shahs3/isabl_data_lake/assemblies/GRCh37/GRCh37-lite/GRCh37-lite.fa"
+# GENOMESIZES = "/data1/shahs3/isabl_data_lake/assemblies/GRCh37/GRCh37-lite/GRCh37_lite.genome.sizes"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CONTAINER IMAGES
+# ─────────────────────────────────────────────────────────────────────────────
+containers:
+  clairs: "/data1/greenbab/users/ahunos/apps/containers/clairs_latest.sif"
+  modkit: "/data1/greenbab/users/ahunos/apps/containers/modkit_latest.sif"
+  ont_tools: "/data1/greenbab/users/ahunos/apps/containers/onttools_v2.0.sif"
+  sniffles: "/data1/greenbab/users/ahunos/apps/containers/sniffles_2.6.2.sif"
+
+# Conda environment for Clair3
+conda_prefix: "/opt/conda/envs/clairs"
+
+# chromosomes: ['chr1', 'chr2', 'chr3', 'chr4', 'chr5', 'chr6', 'chr7', 'chr8', 
+#               'chr9', 'chr10', 'chr11', 'chr12', 'chr13', 'chr14', 'chr15', 
+#               'chr16', 'chr17', 'chr18', 'chr19', 'chr20', 'chr21', 'chr22', 
+#               'chrX', 'chrY']
+# ─────────────────────────────────────────────────────────────────────────────
+# COMPUTATIONAL RESOURCES
+# ─────────────────────────────────────────────────────────────────────────────
+resources:
+  threads:
+    default: 12
+    sv_calling: 8
+    clair3: 4
+  memory_mb:
+    clair3: 256000
+    default: 32000
+
+# ─────────────────────────────────────────────────────────────────────────────
+# VARIANT CALLING PARAMETERS
+# ─────────────────────────────────────────────────────────────────────────────
+variant_calling:
+  # Clair3 parameters
+  clair3:
+    quality_threshold: 5
+    enable_indel_calling: true
+    enable_germline_output: true
+  
+  # SV calling filters
+  sv_filters:
+    normal_filter: "PASS"
+    tumor_filter: "PASS"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# METHYLATION ANALYSIS PARAMETERS
+# ─────────────────────────────────────────────────────────────────────────────
+methylation:
+  # Modkit parameters
+  modkit:
+    min_coverage: 5
+    filter_threshold: 0.85
+    sampling_fraction: 0.8
+    combine_strands: true
+    cpg_only: true
+  
+  # Modification codes to analyze
+  mod_codes: ["h", "m", "a"]
+  
+  # Haplotype groups
+  haplotypes: ["1", "2", "ungrouped"]
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PHASING PARAMETERS
+# ─────────────────────────────────────────────────────────────────────────────
+phasing:
+  # Longphase parameters
+  longphase:
+    use_ont_model: true
+    partition_tag: "HP"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# MISC PARAMETERS
+# ─────────────────────────────────────────────────────────────────────────────
+misc:
+  random_seed: 1234
+  
+# ─────────────────────────────────────────────────────────────────────────────
+# LOGGING
+# ─────────────────────────────────────────────────────────────────────────────
+logging:
+  log_dir: "logs"
+  
+# ─────────────────────────────────────────────────────────────────────────────
+# ADVANCED SETTINGS (modify with caution)
+# ─────────────────────────────────────────────────────────────────────────────
+advanced:
+  # Tabix parameters
+  tabix:
+    preset: "vcf"
+  
+  # BCFtools parameters
+  bcftools:
+    output_type: "z"  # compressed VCF
+  
+  # Samtools parameters
+  samtools:
+    index_threads: 4

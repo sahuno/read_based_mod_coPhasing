@@ -3,7 +3,7 @@ import yaml
 import os
 import itertools
 
-# snakemake --snakefile /data1/greenbab/users/ahunos/apps/workflows/methylation_workflows/read_based_mod_coPhasing/wf_snakemake/MultiTumorNormalPair/read_based_coPhasing.smk \
+# snakemake --snakefile /data1/greenbab/users/ahunos/apps/workflows/methylation_workflows/read_based_mod_coPhasing/wf_snakemake/MultiTumorNormalPair/chr5_read_based_coPhasing.smk \
 # --workflow-profile /data1/greenbab/users/ahunos/apps/workflows/methylation_workflows/read_based_mod_coPhasing/wf_snakemake/MultiTumorNormalPair/config/slurmMinimalist \
 # --cores all --use-singularity --singularity-args "--nv -B /data1/greenbab,/scratch/greenbab/ahunos,/data1/shahs3" --keep-going --rerun-incomplete -np
 
@@ -12,7 +12,7 @@ import itertools
 # +          | bgzip -c > {output.out_modcallgz}
 
 # ─── 0) LOAD CONFIGURATION ────────────────────────────────────────────────────
-configfile: "/data1/greenbab/users/ahunos/apps/workflows/methylation_workflows/read_based_mod_coPhasing/wf_snakemake/MultiTumorNormalPair/config.yaml"
+configfile: "/data1/greenbab/users/ahunos/apps/workflows/methylation_workflows/read_based_mod_coPhasing/wf_snakemake/MultiTumorNormalPair/chr5_config.yaml"
 
 # ─── LOAD CHROMOSOMES FROM REFERENCE ─────────────────────────────────────────
 def get_chromosomes_from_fai(fai_path):
@@ -761,10 +761,10 @@ rule mod_SNV_coPhased_haplotagged_tumor:
         samtools index {output.haplotagged_bam}
 
 
-        #DELETE AFTER TESTING; CHANGE `SN:17` values 
+        #DELETE AFTER TESTING; CHANGE `SN:5` values 
         samtools view -h {output.haplotagged_bam} \
         | awk 'BEGIN{{OFS="\t"}}
-         /^@SQ/ {{ if ($2=="SN:17") print; next }}
+         /^@SQ/ {{ if ($2=="SN:5") print; next }}
          /^@/  {{ print;      next }}
                 {{ print }}
         ' \
@@ -806,10 +806,10 @@ rule mod_SNV_coPhased_haplotagged_normal:
         && touch {output.done} 2> {log}
         samtools index {output.haplotagged_bam}
 
-        #DELETE AFTER TESTING; CHANGE `SN:17` values 
+        #DELETE AFTER TESTING; CHANGE `SN:5` values 
         samtools view -h {output.haplotagged_bam} \
         | awk 'BEGIN{{OFS="\t"}}
-         /^@SQ/ {{ if ($2=="SN:17") print; next }}
+         /^@SQ/ {{ if ($2=="SN:5") print; next }}
          /^@/  {{ print;      next }}
                 {{ print }}
         ' \
@@ -921,10 +921,10 @@ rule SNV_SV_MOD_haplotag:
         # index the full haplotagged BAM
         samtools index {output.hap_bam}
 
-        # subsample out only chr17 (or whatever filtering you want)
+        # subsample out only 5 (or whatever filtering you want)
         samtools view -h {output.hap_bam} \
         | awk 'BEGIN{{OFS="\t"}}
-           /^@SQ/ {{ if ($2=="SN:17") print; next }}
+           /^@SQ/ {{ if ($2=="SN:5") print; next }}
            /^@/  {{ print;      next }}
                   {{ print }}
         ' \
@@ -1053,7 +1053,7 @@ rule modkit_pileup_unphased_TN:
     input:
         # input callable is allowed
         haplotagged_bam=lambda wc: (
-            f"{OUTDIR}/mod_SNV_coPhased_haplotagged/"
+            f"{OUTDIR}/SNV_SV_MOD_coPhased_haplotagged/"
             f"{wc.pair}/{wc.type}/"
             f"{wc.sample_id}_haplotagged.subsampled.bam"
         )
@@ -1181,7 +1181,7 @@ rule modkit_pileupCpGsBed:
     """
     input:
         haplotagged_bam = (
-            f"{OUTDIR}/mod_SNV_coPhased_haplotagged/"
+            f"{OUTDIR}/SNV_SV_MOD_coPhased_haplotagged/"
             f"{{pair}}/{{type}}/{{sample_id}}_haplotagged.subsampled.bam"
         )
     output:
