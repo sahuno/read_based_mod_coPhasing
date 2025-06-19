@@ -1,7 +1,7 @@
 default-resources:
     slurm_partition: "cpushort"
     slurm_account: "greenbab"
-    runtime: 120 # 2hrs
+    runtime: 119 # 2hrs
     mem_mb_per_cpu: 64000
     cpus_per_task: 8
     nodes: 1
@@ -12,15 +12,29 @@ executor: slurm
 # mem_mb_per_cpu: 24000
 # cpus_per_task: 8
 
-# set-resources:
-#     mod_bases:
-#         slurm_partition: "componc_gpu"
-#         slurm_account: "greenbab"
-#         nodes: 1
-#         runtime: 2400
-#         slurm_extra: "'--gres=gpu:2'"
-#         mem_mb_per_cpu: 24000
-#         cpus_per_task: 8
+set-resources:
+    run_l1em:
+        slurm_partition: "componc_cpu"
+        slurm_account: "greenbab"
+        nodes: 1
+        runtime: 420
+        mem_mb_per_cpu: 64
+        cpus_per_task: 8
+    combine_counts:
+        slurm_partition: "cpushort"
+        slurm_account: "greenbab"
+        nodes: 1
+        runtime: 30
+        mem_mb_per_cpu: 4
+        cpus_per_task: 4
+    # mod_bases:
+    #     slurm_partition: "componc_gpu"
+    #     slurm_account: "greenbab"
+    #     nodes: 1
+    #     runtime: 2400
+    #     slurm_extra: "'--gres=gpu:2'"
+    #     mem_mb_per_cpu: 24000
+    #     cpus_per_task: 8
 #     sort_mod_bases:
 #         slurm_partition: "componc_cpu"
 #         slurm_account: "greenbab"

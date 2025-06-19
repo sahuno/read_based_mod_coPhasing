@@ -864,8 +864,6 @@ rule longphase_SNV_SV_MOD_co_phase:
           --ont \
         2>&1 | tee {log}
 
-
-
         # compress & index each output VCF
         bgzip -f {output.tmp_phased_snp} -o {output.phased_snp}
         bgzip -f {output.tmp_phased_sv} -o {output.phased_sv}

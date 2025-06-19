@@ -129,6 +129,20 @@ def get_sample_bam(sample_id):
 def get_sample_type(sample_id):
     return sample_info[sample_id]['sample_type'].lower()
 
+def get_whatshap_outputs():
+    """Generate all WhatsHap output files for rule all"""
+    outputs = []
+    for pair in PAIRS:
+        for sample_type in ["tumor", "normal"]:
+            sample_id = pair_info[pair][f"{sample_type}_id"]
+            base_path = f"{OUTDIR}/whatsHap_phase/{pair}/{sample_type}/{sample_id}.whatsHap.phased.vcf"
+            outputs.extend([
+                f"{base_path}.gz",
+                f"{base_path}.gz.tbi"
+            ])
+    return outputs
+    #            f"{base_path}.gz.reads"
+    #
 # ─── FINAL OUTPUTS ─────────────────────────────────────────────────────────────
 rule all:
     input:
@@ -178,46 +192,26 @@ rule all:
             )
             for t in TYPE
         ],
+        
         *[
-            expand(
-                f"{OUTDIR}/SNV_SV_MOD_coPhased_haplotagged/{{pair}}/{t}/{{sid}}_haplotagged.{ext}",
-                zip,
-                pair=PAIRS,
-                sid=[ pair_info[p][f"{t}_id"] for p in PAIRS ],
-            )
-            for t in TYPE
-            for ext in ("bam", "bam.bai", "subsampled.bam", "subsampled.bam.bai")
+            f"{OUTDIR}/SNV_SV_MOD_coPhased_haplotagged/{pair}/tumor/{pair_info[pair]['tumor_id']}_haplotagged.{ext}"
+            for pair in PAIRS
+            for ext in ["bam", "bam.bai", "subsampled.bam", "subsampled.bam.bai"]
         ],
-        # done flags
         *[
-            expand(
-                f"{OUTDIR}/SNV_SV_MOD_coPhased_haplotagged/{{pair}}/{t}/done.{{sid}}.txt",
-                zip,
-                pair=PAIRS,
-                sid=[ pair_info[p][f"{t}_id"] for p in PAIRS ],
-            )
-            for t in TYPE
+            f"{OUTDIR}/SNV_SV_MOD_coPhased_haplotagged/{pair}/normal/{pair_info[pair]['normal_id']}_haplotagged.{ext}"
+            for pair in PAIRS
+            for ext in ["bam", "bam.bai", "subsampled.bam", "subsampled.bam.bai"]
         ],
-        # SNV+SV+mod co‐phased haplotagged BAMs
+        
+        # done flags - FIXED VERSION
         *[
-            expand(
-                f"{OUTDIR}/SNV_SV_MOD_coPhased_haplotagged/{{pair}}/{t}/{{sid}}_haplotagged.{ext}",
-                zip,
-                pair=PAIRS,
-                sid=[ pair_info[p][f"{t}_id"] for p in PAIRS ],
-            )
-            for t in TYPE
-            for ext in ("bam", "bam.bai", "subsampled.bam", "subsampled.bam.bai")
+            f"{OUTDIR}/SNV_SV_MOD_coPhased_haplotagged/{pair}/tumor/done.{pair_info[pair]['tumor_id']}.txt"
+            for pair in PAIRS
         ],
-        # done flags
         *[
-            expand(
-                f"{OUTDIR}/SNV_SV_MOD_coPhased_haplotagged/{{pair}}/{t}/done.{{sid}}.txt",
-                zip,
-                pair=PAIRS,
-                sid=[ pair_info[p][f"{t}_id"] for p in PAIRS ],
-            )
-            for t in TYPE
+            f"{OUTDIR}/SNV_SV_MOD_coPhased_haplotagged/{pair}/normal/done.{pair_info[pair]['normal_id']}.txt"
+            for pair in PAIRS
         ],
         expand(
             f"{OUTDIR}/modkit_pileup_unphased_TN/{{pair}}/tumor/{{tumor_id}}.bed.gz",
@@ -328,7 +322,28 @@ rule all:
                 "_unphased_TN_dmr_diff.bed.gz",
                 "_unphased_TN_dmr_diff.bed.gz.tbi",
             ]
-        ]
+        ],
+        *[
+            f"{OUTDIR}/merge_and_sort_SNV_SV_MOD_phased_vcfs/{pair}/{type}/{pair_info[pair][f'{type}_id']}_{suffix}"
+            for pair in PAIRS
+            for type in ["tumor", "normal"]
+            for suffix in [
+                "SNV_SV_MOD_cophased_merged_sorted.vcf.gz",
+                "SNV_SV_MOD_cophased_merged_sorted.vcf.gz.tbi",
+                "SNV_SV_MOD_cophased_merged_stats.tsv",
+                "SNV_SV_MOD_cophased_merged.gtf"
+
+            ]
+        ],
+        get_whatshap_outputs(),
+        #add this back when you install bc tool to rul merge_and_sort_SNV_SV_MOD_phased_vcfs 
+
+                #         "phasing_summary.txt",
+                # "phase_block_n50.txt"
+
+        # expand(f"{OUTDIR}/merge_and_sort_SNV_SV_MOD_phased_vcfs/{{pair}}/{{type}}/{{sample}}_SNV_SV_MOD_cophased_merged_sorted.vcf.gz", pair=PAIRS, type=TYPES, sample=SAMPLES),
+        # expand(f"{OUTDIR}/merge_and_sort_SNV_SV_MOD_phased_vcfs/{{pair}}/{{type}}/{{sample}}_SNV_SV_MOD_cophased_merged_stats.tsv", pair=PAIRS, type=TYPES, sample=SAMPLES),
+        # expand(f"{OUTDIR}/merge_and_sort_SNV_SV_MOD_phased_vcfs/{{pair}}/{{type}}/{{sample}}_SNV_SV_MOD_cophased_merged.gtf", pair=PAIRS, type=TYPES, sample=SAMPLES),
 
 
 
@@ -886,6 +901,7 @@ rule longphase_SNV_SV_MOD_co_phase:
 rule SNV_SV_MOD_haplotag:
     """
     Haplotag a co-phased SNV+SV+mod VCF trio in one go, for either tumor or normal.
+    Validates that the sample belongs to the specified pair.
     """
     input:
         bam         = lambda wc: pair_info[wc.pair][f"{wc.type}_bam"],
@@ -899,14 +915,26 @@ rule SNV_SV_MOD_haplotag:
         sub_bai     = f"{OUTDIR}/SNV_SV_MOD_coPhased_haplotagged/{{pair}}/{{type}}/{{sample}}_haplotagged.subsampled.bam.bai",
         done        = f"{OUTDIR}/SNV_SV_MOD_coPhased_haplotagged/{{pair}}/{{type}}/done.{{sample}}.txt"
     params:
-        out_prefix  = f"{OUTDIR}/SNV_SV_MOD_coPhased_haplotagged/{{pair}}/{{type}}/{{sample}}_haplotagged"
+        out_prefix  = f"{OUTDIR}/SNV_SV_MOD_coPhased_haplotagged/{{pair}}/{{type}}/{{sample}}_haplotagged",
+        expected_sample = lambda wc: pair_info[wc.pair][f"{wc.type}_id"]
     threads: THREADS
     singularity: ONT_TOOLS_IMG
     log:
         f"{config['logging']['log_dir']}/haplotag/{{pair}}/{{type}}/{{sample}}.log"
-    shell:
-        r"""
+    run:
+        # Validate that the sample belongs to this pair
+        if wildcards.sample != params.expected_sample:
+            raise ValueError(
+                f"Invalid sample-pair combination: {wildcards.sample} is not the "
+                f"{wildcards.type} sample for pair {wildcards.pair}. "
+                f"Expected: {params.expected_sample}"
+            )
+        
+        # Run the actual command only for valid combinations
+        shell(r"""
         mkdir -p {OUTDIR}/SNV_SV_MOD_coPhased_haplotagged/{wildcards.pair}/{wildcards.type}
+
+        echo "Processing {wildcards.type} sample {wildcards.sample} for pair {wildcards.pair}" | tee {log}
 
         longphase haplotag \
           -s {input.phased_snp} \
@@ -916,7 +944,7 @@ rule SNV_SV_MOD_haplotag:
           -r {REF} \
           -t {threads} \
           -o {params.out_prefix} \
-        2>&1 | tee {log}
+        2>&1 | tee -a {log}
 
         # index the full haplotagged BAM
         samtools index {output.hap_bam}
@@ -933,39 +961,287 @@ rule SNV_SV_MOD_haplotag:
         samtools index {output.sub_bam}
 
         touch {output.done}
+        """)
+
+
+
+
+##### combine phased vcfs #####
+##TO FIX: Sample names in the output VCFs are not consistent with the input VCFs.
+rule merge_and_sort_SNV_SV_MOD_phased_vcfs:
+    input:
+        bam         = lambda wc: pair_info[wc.pair][f"{wc.type}_bam"],
+        phased_snp  = f"{OUTDIR}/SNV_SV_MOD_co_phase/{{pair}}/{{type}}/{{sample_id}}.phase.snp.vcf.gz",
+        phased_sv   = f"{OUTDIR}/SNV_SV_MOD_co_phase/{{pair}}/{{type}}/{{sample_id}}.phase.sv.vcf.gz",
+        phased_mod  = f"{OUTDIR}/SNV_SV_MOD_co_phase/{{pair}}/{{type}}/{{sample_id}}.phase.mod.vcf.gz"
+    output:
+        # Main outputs
+        merged_cophased_vcfs = f"{OUTDIR}/merge_and_sort_SNV_SV_MOD_phased_vcfs/{{pair}}/{{type}}/{{sample_id}}_SNV_SV_MOD_cophased_merged_sorted.vcf.gz",
+        merged_index = f"{OUTDIR}/merge_and_sort_SNV_SV_MOD_phased_vcfs/{{pair}}/{{type}}/{{sample_id}}_SNV_SV_MOD_cophased_merged_sorted.vcf.gz.tbi",
+        
+        # WhatsHap phasing statistics
+        phased_stats = f"{OUTDIR}/merge_and_sort_SNV_SV_MOD_phased_vcfs/{{pair}}/{{type}}/{{sample_id}}_SNV_SV_MOD_cophased_merged_stats.tsv",
+        phased_gtf = f"{OUTDIR}/merge_and_sort_SNV_SV_MOD_phased_vcfs/{{pair}}/{{type}}/{{sample_id}}_SNV_SV_MOD_cophased_merged.gtf",
+        
+        # Phasing completeness metrics
+        #phase_summary = f"{OUTDIR}/merge_and_sort_SNV_SV_MOD_phased_vcfs/{{pair}}/{{type}}/{{sample_id}}_phasing_summary.txt",
+        
+        # N50 statistics for phase blocks
+        #n50_stats = f"{OUTDIR}/merge_and_sort_SNV_SV_MOD_phased_vcfs/{{pair}}/{{type}}/{{sample_id}}_phase_block_n50.txt"
+    params:
+        sample_id = "{sample_id}",
+        outdir = f"{OUTDIR}/merge_and_sort_SNV_SV_MOD_phased_vcfs/{{pair}}/{{type}}"
+    threads: 4
+    singularity: ONT_TOOLS_IMG
+    log:
+        f"{config['logging']['log_dir']}/merge_phased_vcfs/{{pair}}/{{type}}/{{sample_id}}.log"
+    shell:
+        r"""
+        set -euo pipefail
+        
+        # Create output directory
+        mkdir -p {params.outdir}
+        
+        echo "Merging and analyzing phased VCFs for {params.sample_id}" | tee {log}
+        
+        # 1. Merge and sort VCFs
+        echo "Step 1: Merging VCFs..." | tee -a {log}
+        bcftools concat \
+            {input.phased_mod} {input.phased_snp} {input.phased_sv} \
+            -a -Ou \
+        | bcftools sort -Oz -o {output.merged_cophased_vcfs} 2>&1 | tee -a {log}
+        
+        bcftools index -f -t {output.merged_cophased_vcfs}
+        
+        # 2. Generate WhatsHap statistics
+        echo "Step 2: Generating WhatsHap statistics..." | tee -a {log}
+        whatshap stats \
+            --tsv {output.phased_stats} \
+            --gtf {output.phased_gtf} \
+            {output.merged_cophased_vcfs} 2>&1 | tee -a {log}
+        
+        # 3. Generate comprehensive phasing summary
+        echo "Step 3: Creating phasing summary..." | tee -a {log}
+        # (
+        #     echo "=== Phasing Summary for {params.sample_id} ==="
+        #     echo "Generated: $(date)"
+        #     echo ""
+            
+        #     # Overall statistics
+        #     total_variants=$(bcftools view -H {output.merged_cophased_vcfs} | wc -l)
+        #     phased_variants=$(bcftools view -H {output.merged_cophased_vcfs} | grep -cE '(1\|0|0\|1|1\|1)' || echo 0)
+        #     unphased_variants=$((total_variants - phased_variants))
+            
+        #     echo "Total variants: $total_variants"
+        #     echo "Phased variants: $phased_variants"
+        #     echo "Unphased variants: $unphased_variants"
+            
+        #     if [ $total_variants -gt 0 ]; then
+        #         phase_rate=$(echo "scale=2; $phased_variants * 100 / $total_variants" | bc)
+        #         echo "Overall phasing rate: $phase_rate%"
+        #     else
+        #         echo "Overall phasing rate: 0%"
+        #     fi
+            
+        #     echo ""
+        #     echo "=== Variant Type Breakdown ==="
+            
+        #     # Count by variant type
+        #     snp_total=$(bcftools view -v snps {output.merged_cophased_vcfs} | grep -c "^[^#]" || echo 0)
+        #     snp_phased=$(bcftools view -v snps {output.merged_cophased_vcfs} | grep -cE '(1\|0|0\|1|1\|1)' || echo 0)
+            
+        #     indel_total=$(bcftools view -v indels {output.merged_cophased_vcfs} | grep -c "^[^#]" || echo 0)
+        #     indel_phased=$(bcftools view -v indels {output.merged_cophased_vcfs} | grep -cE '(1\|0|0\|1|1\|1)' || echo 0)
+            
+        #     # Count SVs (variants with ref or alt > 50bp)
+        #     sv_total=$(bcftools view -H {output.merged_cophased_vcfs} | awk 'length($4) > 50 || length($5) > 50' | wc -l || echo 0)
+        #     sv_phased=$(bcftools view -H {output.merged_cophased_vcfs} | awk 'length($4) > 50 || length($5) > 50' | grep -cE '(1\|0|0\|1|1\|1)' || echo 0)
+            
+        #     # Count methylation variants
+        #     mod_total=$(bcftools view -H {output.merged_cophased_vcfs} | grep -c "MM=" || echo 0)
+        #     mod_phased=$(bcftools view -H {output.merged_cophased_vcfs} | grep "MM=" | grep -cE '(1\|0|0\|1|1\|1)' || echo 0)
+            
+        #     echo "SNPs: $snp_phased / $snp_total phased"
+        #     if [ $snp_total -gt 0 ]; then
+        #         snp_rate=$(echo "scale=2; $snp_phased * 100 / $snp_total" | bc)
+        #         echo "  Phasing rate: $snp_rate%"
+        #     fi
+            
+        #     echo "INDELs: $indel_phased / $indel_total phased"
+        #     if [ $indel_total -gt 0 ]; then
+        #         indel_rate=$(echo "scale=2; $indel_phased * 100 / $indel_total" | bc)
+        #         echo "  Phasing rate: $indel_rate%"
+        #     fi
+            
+        #     echo "SVs: $sv_phased / $sv_total phased"
+        #     if [ $sv_total -gt 0 ]; then
+        #         sv_rate=$(echo "scale=2; $sv_phased * 100 / $sv_total" | bc)
+        #         echo "  Phasing rate: $sv_rate%"
+        #     fi
+            
+        #     echo "Methylation: $mod_phased / $mod_total phased"
+        #     if [ $mod_total -gt 0 ]; then
+        #         mod_rate=$(echo "scale=2; $mod_phased * 100 / $mod_total" | bc)
+        #         echo "  Phasing rate: $mod_rate%"
+        #     fi
+            
+        #     echo ""
+        #     echo "=== Phase Block Statistics ==="
+            
+        #     # Extract key metrics from WhatsHap stats
+        #     if [ -f {output.phased_stats} ] && [ -s {output.phased_stats} ]; then
+        #         # Skip header and extract values
+        #         tail -n 1 {output.phased_stats} | awk -F'\t' '
+        #         BEGIN {{OFS=""}}
+        #         {{
+        #             print "Chromosomes with phased variants: " $2
+        #             print "Total phase blocks: " $6
+        #             print "Largest phase block (bp): " $7
+        #             print "Largest phase block (variants): " $8
+        #         }}'
+                
+        #         # Calculate average variants per block
+        #         num_blocks=$(tail -n 1 {output.phased_stats} | cut -f6)
+        #         if [ "$num_blocks" -gt 0 ]; then
+        #             avg_vars=$(echo "scale=1; $phased_variants / $num_blocks" | bc)
+        #             echo "Average variants per phase block: $avg_vars"
+        #         fi
+        #     fi
+            
+        # ) > {output.phase_summary}
+        
+        # # 4. Calculate N50 statistics for phase blocks
+        # echo "Step 4: Calculating N50 statistics..." | tee -a {log}
+        # (
+        #     echo "=== Phase Block N50 Statistics ==="
+        #     echo "Sample: {params.sample_id}"
+        #     echo "Date: $(date)"
+        #     echo ""
+            
+        #     # Extract block sizes from GTF
+        #     grep -v "^#" {output.phased_gtf} | \
+        #         awk -F'\t' '{{
+        #             # Calculate block size
+        #             size = $5 - $4 + 1
+        #             print size
+        #         }}' | sort -nr > {output.n50_stats}.tmp
+            
+        #     if [ -s {output.n50_stats}.tmp ]; then
+        #         # Calculate total length
+        #         total_length=$(awk '{{sum+=$1}} END {{print sum}}' {output.n50_stats}.tmp)
+        #         echo "Total phase block length: $total_length bp"
+                
+        #         # Calculate N50
+        #         half_length=$(echo "$total_length / 2" | bc)
+        #         cumsum=0
+        #         n50_value=0
+        #         while read size; do
+        #             cumsum=$((cumsum + size))
+        #             if [ $cumsum -ge $half_length ]; then
+        #                 n50_value=$size
+        #                 break
+        #             fi
+        #         done < {output.n50_stats}.tmp
+                
+        #         echo "N50 phase block size: $n50_value bp"
+                
+        #         # Additional statistics
+        #         num_blocks=$(wc -l < {output.n50_stats}.tmp)
+        #         max_block=$(head -1 {output.n50_stats}.tmp)
+        #         min_block=$(tail -1 {output.n50_stats}.tmp)
+        #         mean_block=$(awk '{{sum+=$1}} END {{if(NR>0) print int(sum/NR); else print 0}}' {output.n50_stats}.tmp)
+                
+        #         echo ""
+        #         echo "Number of phase blocks: $num_blocks"
+        #         echo "Maximum block size: $max_block bp"
+        #         echo "Minimum block size: $min_block bp"
+        #         echo "Mean block size: $mean_block bp"
+                
+        #         # Calculate L50 (number of blocks to reach N50)
+        #         cumsum=0
+        #         l50=0
+        #         while read size; do
+        #             cumsum=$((cumsum + size))
+        #             l50=$((l50 + 1))
+        #             if [ $cumsum -ge $half_length ]; then
+        #                 break
+        #             fi
+        #         done < {output.n50_stats}.tmp
+        #         echo "L50 (blocks to reach N50): $l50"
+                
+        #         # Quantiles
+        #         echo ""
+        #         echo "Phase block size quantiles:"
+        #         total_blocks=$(wc -l < {output.n50_stats}.tmp)
+        #         q25_pos=$(echo "$total_blocks * 0.25" | bc | cut -d. -f1)
+        #         q50_pos=$(echo "$total_blocks * 0.50" | bc | cut -d. -f1)
+        #         q75_pos=$(echo "$total_blocks * 0.75" | bc | cut -d. -f1)
+                
+        #         q75=$(sed -n "${{q25_pos}}p" {output.n50_stats}.tmp)
+        #         q50=$(sed -n "${{q50_pos}}p" {output.n50_stats}.tmp)
+        #         q25=$(sed -n "${{q75_pos}}p" {output.n50_stats}.tmp)
+                
+        #         echo "  Q25: $q25 bp"
+        #         echo "  Q50 (median): $q50 bp"
+        #         echo "  Q75: $q75 bp"
+        #     else
+        #         echo "No phase blocks found"
+        #     fi
+            
+        #     rm -f {output.n50_stats}.tmp
+        # ) > {output.n50_stats}
+        
+        echo "Phasing quality assessment complete!" | tee -a {log}
         """
+#phasing stats; --chromosome 5 
+#singularity exec -B /data1/greenbab/ /data1/greenbab/users/ahunos/apps/containers/onttools_v2.0.sif whatshap stats --chromosome 5 --tsv evals_phasing/all_phased_merged_sorted_chr5.tsv --gtf evals_phasing/all_phased_merged_sorted_chr5.gtf all_phased.merged.sorted.vcf.gz 
+# singularity exec -B /data1/greenbab/ /data1/greenbab/users/ahunos/apps/containers/onttools_v2.0.sif multiqc evals_phasing/
+#  stats --tsv all_phased_merged_sorted.tsv --gtf all_phased_merged_sorted.gtf all_phased.merged.sorted.vcf.gz 
+
+
+
 
 # ─── OPTIONAL: WhatsHap SNV phasing ──────────────────────────────────────
 rule whatshap_phase:
     """
     Phase SNPs (and small indels) with WhatsHap.
-    Produces a phased VCF and its index.
+    Produces a phased VCF, its index, and read phase information.
     """
     input:
         vcf = f"{OUTDIR}/filter_pass/{{type}}/{{pair}}/{{sample_id}}.pass.vcf.gz",
         bam = lambda wc: pair_info[wc.pair][f"{wc.type}_bam"]
     output:
         phased = f"{OUTDIR}/whatsHap_phase/{{pair}}/{{type}}/{{sample_id}}.whatsHap.phased.vcf.gz",
-        tbi    = f"{OUTDIR}/whatsHap_phase/{{pair}}/{{type}}/{{sample_id}}.whatsHap.phased.vcf.gz.tbi"
+        tbi    = f"{OUTDIR}/whatsHap_phase/{{pair}}/{{type}}/{{sample_id}}.whatsHap.phased.vcf.gz.tbi",
+        #reads  = f"{OUTDIR}/whatsHap_phase/{{pair}}/{{type}}/{{sample_id}}.whatsHap.phased.vcf.gz.reads"  # Added this output
     params:
         ref     = REF,
-        threads = THREADS
+        expected_sample = lambda wc: pair_info[wc.pair][f"{wc.type}_id"]
     singularity: ONT_TOOLS_IMG
     threads: THREADS
     log:
         f"{config['logging']['log_dir']}/whatsHap/{{pair}}/{{type}}/{{sample_id}}.log"
-    shell:
-        r"""
+    run:
+        # Validate that the sample belongs to this pair
+        if wildcards.sample_id != params.expected_sample:
+            raise ValueError(
+                f"Invalid sample-pair combination: {wildcards.sample_id} is not the "
+                f"{wildcards.type} sample for pair {wildcards.pair}. "
+                f"Expected: {params.expected_sample}"
+            )
+        
+        shell(r"""
         mkdir -p $(dirname {output.phased})
         whatshap phase \
+            --tag HP \
             --reference {params.ref} \
             --output {output.phased} \
-            --output-read-phases {output.phased}.reads \
             {input.vcf} {input.bam} \
-            --threads {threads} 2>&1 | tee {log}
+            2>&1 | tee {log}
         tabix -p vcf {output.phased}
-        """
-
+        """)
+           # --output-read-phases {output.reads} \
+# 
 # ─── 7) STRUCTURAL VARIANT CALLING ──────────────────────────
 rule normal_sv:
     input:
@@ -1293,9 +1569,21 @@ rule highQual_modkit_pileup_sortTabixBedTumor:
         tabix -p bed {output.sorted_tabixed}
         """
 
+
+
+        # bedmethyl = (
+        #     f"{OUTDIR}/mod_SNV_coPhased_haplotagged/"
+        #     f"{{pair}}/{{type}}/{{sample_id}}_haplotagged.subsampled.bam"
+        # )
+
+
+
 # rule highQual_modkit_pileup_5mC_5hmC_BigWigs:
 #     input:
-#         bed= f"{OUTDIR}/highQual_modkit_pileup_5mC_5hmC_sortTabixBed/{{sample}}/{{sample}}_{{haplotypes}}_sorted.bed"
+#         bedmethyl= (
+        #     f"{OUTDIR}/mod_SNV_coPhased_haplotagged/"
+        #     f"{{pair}}/{{type}}/{{sample_id}}_haplotagged.subsampled.bam"
+        # )
 #     output:
 #         bedmethyl= f"{OUTDIR}/highQual_modkit_pileup_5mC_5hmC_BigWigs/{{sample}}/{{sample}}_{{haplotypes}}_{{mod}}_sorted.bw"
 #     singularity: MODKIT_IMG
@@ -1363,3 +1651,57 @@ rule modkit_dmr_pair:
 
         #         sorted_bed= f"{OUTDIR}/modkit_pileup_sortTabixBedTumor/{{pair}}/tumor/{{tumor_id}}_{{haplotype}}_sorted.bed",
         # sorted_tabixed= f"{OUTDIR}/modkit_pileup_sortTabixBedTumor/{{pair}}/tumor/{{tumor_id}}_{{haplotype}}_sorted.bed.gz"
+
+
+rule bedmethyl_to_bigwig_unphased_TN:
+    """
+    Convert unphased modkit‐pileup BED (tumor or normal) to BigWig.
+    """
+    input:
+        bed = f"{OUTDIR}/modkit_pileup_unphased_TN/{{pair}}/{{type}}/{{sample_id}}.bed.gz"
+    output:
+        bw  = f"{OUTDIR}/bigwig_unphased_TN/{{pair}}/{{type}}/{{sample_id}}.bw"
+    threads: THREADS
+    singularity: MODKIT_IMG
+    params:
+        genome_sizes = GENOMESIZES,
+        mod_codes     = MODCODES
+    log:
+        f"{config['logging']['log_dir']}/bedmethyl_to_bigwig_unphased_TN/{{pair}}/{{type}}/{{sample_id}}.log"
+    shell:
+        r"""
+        mkdir -p $(dirname {output.bw})
+        echo "Converting {input.bed} → {output.bw}" >> {log}
+        modkit bedmethyl tobigwig \
+            --mod-codes {params.mod_codes} \
+            --suppress-progress \
+            --nthreads {threads} \
+            --sizes {params.genome_sizes} \
+            {input.bed} {output.bw} \
+        2>> {log}
+        """
+
+
+# rule bamCoverage_toBigWig:
+#     input:
+#         haplotagged_bam=lambda wildcards: config["samples"][wildcards.sample]
+#     output:
+#         bamCov_bw= f"{OUTDIR}/bamCoverage_toBigWig/{{sample}}/{{sample}}.bw"
+#     params:
+#         ref= REF,
+#         genomeSizes = GENOMESIZES
+#     threads: THREADS
+#     log:
+#         "logs/bamCoverage_toBigWig/{sample}/{sample}.log"
+#     shell:
+#         r"""
+#         source /home/ahunos/miniforge3/etc/profile.d/conda.sh && conda activate methyl_ONT
+
+#         bamCoverage -b {input.haplotagged_bam} \
+#             -o {output.bamCov_bw} \
+#             --binSize 10 \
+#             --normalizeUsing RPKM \
+#             --smoothLength 50 \
+#             --extendReads 150 \
+#             --centerReads -p 6
+#         """
