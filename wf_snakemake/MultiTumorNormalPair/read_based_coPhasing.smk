@@ -7,6 +7,11 @@ import itertools
 # --workflow-profile /data1/greenbab/users/ahunos/apps/workflows/methylation_workflows/read_based_mod_coPhasing/wf_snakemake/MultiTumorNormalPair/config/slurmMinimalist \
 # --cores all --use-singularity --singularity-args "--nv -B /data1/greenbab,/scratch/greenbab/ahunos,/data1/shahs3" --keep-going --rerun-incomplete -np
 
+
+# snakemake --snakefile /data1/greenbab/users/ahunos/apps/workflows/methylation_workflows/read_based_mod_coPhasing/wf_snakemake/MultiTumorNormalPair/read_based_coPhasing.smk \
+# --workflow-profile /data1/greenbab/users/ahunos/apps/workflows/methylation_workflows/read_based_mod_coPhasing/wf_snakemake/MultiTumorNormalPair/config/slurmMinimalist \
+# --cores all --use-singularity --singularity-args "--nv -B /data1/greenbab,/scratch/greenbab/ahunos,/data1/shahs3" --forceall --dag | dot -Tpdf > dag_read_based_coPhasing.pdf 
+
 ##TODO: Request longphase modcall team to add trailing `>` to output VCFs
 # +        sed '/^##FORMAT=<ID=DP,/ s/$/>/' {output.out_modcall} \
 # +          | bgzip -c > {output.out_modcallgz}
@@ -193,6 +198,12 @@ rule all:
             for t in TYPE
         ],
         
+        # *[
+        #     f"{OUTDIR}/SNV_SV_MOD_coPhased_haplotagged/{pair}/tumor/{pair_info[pair]['tumor_id']}_haplotagged.{ext}"
+        #     for pair in PAIRS
+        #     for ext in ["bam", "bam.bai", "subsampled.bam", "subsampled.bam.bai"]
+        # ]
+
         *[
             f"{OUTDIR}/SNV_SV_MOD_coPhased_haplotagged/{pair}/tumor/{pair_info[pair]['tumor_id']}_haplotagged.{ext}"
             for pair in PAIRS
@@ -213,6 +224,90 @@ rule all:
             f"{OUTDIR}/SNV_SV_MOD_coPhased_haplotagged/{pair}/normal/done.{pair_info[pair]['normal_id']}.txt"
             for pair in PAIRS
         ],
+        # SNV+SV co-phasing outputs
+        *[
+            expand(
+                f"{OUTDIR}/SNV_SV_co_phase/{{pair}}/{t}/{{sid}}.phase.{suf}.vcf.gz",
+                zip,
+                pair=PAIRS,
+                sid=[ pair_info[p][f"{t}_id"] for p in PAIRS ]
+            )
+            for t in TYPE
+            for suf in ("snp","sv")
+        ],
+        # the done flags
+        *[
+            expand(
+                f"{OUTDIR}/SNV_SV_co_phase/{{pair}}/{t}/done.{{sid}}.txt",
+                zip,
+                pair=PAIRS,
+                sid=[ pair_info[p][f"{t}_id"] for p in PAIRS ]
+            )
+            for t in TYPE
+        ],
+        
+        # SNV+SV haplotagged BAMs
+        *[
+            f"{OUTDIR}/SNV_SV_coPhased_haplotagged/{pair}/{type}/{pair_info[pair][f'{type}_id']}_haplotagged.{ext}"
+            for pair in PAIRS
+            for type in ["tumor", "normal"]
+            for ext in ["bam", "bam.bai", "subsampled.bam", "subsampled.bam.bai"]
+        ],
+        
+        # Done flags
+        *[
+            f"{OUTDIR}/SNV_SV_coPhased_haplotagged/{pair}/{type}/done.{pair_info[pair][f'{type}_id']}.txt"
+            for pair in PAIRS
+            for type in ["tumor", "normal"]
+        ],
+
+        # SNV+SV haplotagged with germline - tumor samples
+        *[
+            f"{OUTDIR}/SNV_SV_coPhased_haplotagged_with_germline/{pair}/tumor/{pair_info[pair]['tumor_id']}_haplotagged.{ext}"
+            for pair in PAIRS
+            for ext in ["bam", "bam.bai", "subsampled.bam", "subsampled.bam.bai"]
+        ],
+        
+        # SNV+SV haplotagged with germline - normal samples
+        *[
+            f"{OUTDIR}/SNV_SV_coPhased_haplotagged_with_germline/{pair}/normal/{pair_info[pair]['normal_id']}_haplotagged.{ext}"
+            for pair in PAIRS
+            for ext in ["bam", "bam.bai", "subsampled.bam", "subsampled.bam.bai"]
+        ],
+        
+        # Done flags
+        *[
+            f"{OUTDIR}/SNV_SV_coPhased_haplotagged_with_germline/{pair}/tumor/done.{pair_info[pair]['tumor_id']}.txt"
+            for pair in PAIRS
+        ],
+        *[
+            f"{OUTDIR}/SNV_SV_coPhased_haplotagged_with_germline/{pair}/normal/done.{pair_info[pair]['normal_id']}.txt"
+            for pair in PAIRS
+        ],
+        ####### haplotage with germline 
+        # Haplotagged outputs for tumor samples
+        *[
+            f"{OUTDIR}/SNV_SV_MOD_coPhased_haplotagged_with_germline/{pair}/tumor/{pair_info[pair]['tumor_id']}_haplotagged.{ext}"
+            for pair in PAIRS
+            for ext in ["bam", "bam.bai", "subsampled.bam", "subsampled.bam.bai"]
+        ],
+        # Haplotagged outputs for normal samples
+        *[
+            f"{OUTDIR}/SNV_SV_MOD_coPhased_haplotagged_with_germline/{pair}/normal/{pair_info[pair]['normal_id']}_haplotagged.{ext}"
+            for pair in PAIRS
+            for ext in ["bam", "bam.bai", "subsampled.bam", "subsampled.bam.bai"]
+        ],
+        
+        # Done flags
+        *[
+            f"{OUTDIR}/SNV_SV_MOD_coPhased_haplotagged_with_germline/{pair}/tumor/done.{pair_info[pair]['tumor_id']}.txt"
+            for pair in PAIRS
+        ],
+        *[
+            f"{OUTDIR}/SNV_SV_MOD_coPhased_haplotagged_with_germline/{pair}/normal/done.{pair_info[pair]['normal_id']}.txt"
+            for pair in PAIRS
+        ],
+        # modkit_pileup_unphased_TN outputs for tumor
         expand(
             f"{OUTDIR}/modkit_pileup_unphased_TN/{{pair}}/tumor/{{tumor_id}}.bed.gz",
             zip,
@@ -274,14 +369,71 @@ rule all:
         expand(f"{SV_OUTDIR}/{{pair}}/tumor/{{tumor_id}}.tumor.sniffles.filtered.vcf.gz",
                zip, pair=PAIRS, tumor_id=[pair_info[p]['tumor_id'] for p in PAIRS]),
         expand(f"{SV_OUTDIR}/{{pair}}/somatic/{{pair}}.somatic.filtered.sv.vcf.gz", pair=PAIRS),
-
+        #### phased methylation outputs
+        # SNV+SV cophased pileup and sorted outputs
+        *[
+            f"{OUTDIR}/modkit_pileup_sortTabixBed_SNV_SV_cophased/{pair}/{type}/{pair_info[pair][f'{type}_id']}_{hap}_sorted.bed.gz"
+            for pair in PAIRS
+            for type in ["tumor", "normal"]
+            for hap in ["1", "2", "ungrouped"]
+        ],
+        *[
+            f"{OUTDIR}/modkit_pileup_sortTabixBed_SNV_SV_cophased/{pair}/{type}/{pair_info[pair][f'{type}_id']}_{hap}_sorted.bed.gz.tbi"
+            for pair in PAIRS
+            for type in ["tumor", "normal"]
+            for hap in ["1", "2", "ungrouped"]
+        ],
+        
+        # SNV+SV cophased with germline pileup and sorted outputs
+        *[
+            f"{OUTDIR}/modkit_pileup_sortTabixBed_SNV_SV_cophased_with_germline/{pair}/{type}/{pair_info[pair][f'{type}_id']}_{hap}_sorted.bed.gz"
+            for pair in PAIRS
+            for type in ["tumor", "normal"]
+            for hap in ["1", "2", "ungrouped"]
+        ],
+        *[
+            f"{OUTDIR}/modkit_pileup_sortTabixBed_SNV_SV_cophased_with_germline/{pair}/{type}/{pair_info[pair][f'{type}_id']}_{hap}_sorted.bed.gz.tbi"
+            for pair in PAIRS
+            for type in ["tumor", "normal"]
+            for hap in ["1", "2", "ungrouped"]
+        ],
         # Methylation outputs
-        expand(f"{OUTDIR}/modkit_pileupCpGsBed/{{pair}}/tumor/{{tumor_id}}_{{haplotype}}.bed",
+        expand(f"{OUTDIR}/modkit_pileupCpGsBed_phased/{{pair}}/tumor/{{tumor_id}}_{{haplotype}}.bed",
                pair=PAIRS, tumor_id=[pair_info[p]['tumor_id'] for p in PAIRS], haplotype=haplotypes),
-        expand(f"{OUTDIR}/modkit_pileupCpGsBed/{{pair}}/normal/{{normal_id}}_{{haplotype}}.bed",
+        expand(f"{OUTDIR}/modkit_pileupCpGsBed_phased/{{pair}}/normal/{{normal_id}}_{{haplotype}}.bed",
                pair=PAIRS, normal_id=[pair_info[p]['normal_id'] for p in PAIRS], haplotype=haplotypes),
 
-
+        ## trio cophased with tumor and normal variants
+        expand(f"{OUTDIR}/modkit_pileupCpGsBed_trio_cophased/{{pair}}/tumor/{{tumor_id}}_{{haplotype}}.bed",
+               pair=PAIRS, tumor_id=[pair_info[p]['tumor_id'] for p in PAIRS], haplotype=haplotypes),
+        expand(f"{OUTDIR}/modkit_pileupCpGsBed_trio_cophased/{{pair}}/normal/{{normal_id}}_{{haplotype}}.bed",
+               pair=PAIRS, normal_id=[pair_info[p]['normal_id'] for p in PAIRS], haplotype=haplotypes),
+        *[
+            f"{OUTDIR}/modkit_pileup_sortTabixBed_trio_cophased/{pair}/{type}/{pair_info[pair][f'{type}_id']}_{haplotype}_sorted.bed.gz"
+            for pair in PAIRS
+            for type in ["tumor", "normal"]
+            for haplotype in haplotypes
+        ],
+        ### trio cophased with germline variants
+        *[
+            f"{OUTDIR}/modkit_pileup_sortTabixBed_trio_cophased/{pair}/{type}/{pair_info[pair][f'{type}_id']}_{haplotype}_sorted.bed.gz.tbi"
+            for pair in PAIRS
+            for type in ["tumor", "normal"]
+            for haplotype in haplotypes
+        ],
+        *[
+            f"{OUTDIR}/modkit_pileup_sortTabixBed_trio_cophased_with_germline/{pair}/{type}/{pair_info[pair][f'{type}_id']}_{haplotype}_sorted.bed.gz"
+            for pair in PAIRS
+            for type in ["tumor", "normal"]
+            for haplotype in haplotypes
+        ],
+        *[
+            f"{OUTDIR}/modkit_pileup_sortTabixBed_trio_cophased_with_germline/{pair}/{type}/{pair_info[pair][f'{type}_id']}_{haplotype}_sorted.bed.gz.tbi"
+            for pair in PAIRS
+            for type in ["tumor", "normal"]
+            for haplotype in haplotypes
+        ],
+        #### high quality methylation outputs
         expand(f"{OUTDIR}/highQual_modkit_pileup_sortTabixBed/{{pair}}/tumor/{{tumor_id}}_{{haplotype}}_sorted.bed",
                pair=PAIRS, tumor_id=[pair_info[p]['tumor_id'] for p in PAIRS], haplotype=haplotypes),
         expand(f"{OUTDIR}/highQual_modkit_pileup_sortTabixBed/{{pair}}/normal/{{normal_id}}_{{haplotype}}_sorted.bed.gz",
@@ -336,6 +488,21 @@ rule all:
             ]
         ],
         get_whatshap_outputs(),
+        expand(
+            f"{OUTDIR}/merged_pileups_unphased_dedup/merged_{{type}}s_unphased.bed.gz",
+            type=["tumor", "normal"]
+        ),
+        expand(
+            f"{OUTDIR}/merged_pileups_unphased_dedup/merged_{{type}}s_unphased.bed.gz.tbi",
+            type=["tumor", "normal"]
+        ),
+        # DMR results from merged groups
+        f"{OUTDIR}/modkit_dmr_merged_unphased/merged_groups_dmr.bed.gz",
+        f"{OUTDIR}/modkit_dmr_merged_unphased/merged_groups_dmr.bed.gz.tbi",
+        f"{OUTDIR}/modkit_dmr_merged_unphased/merged_groups_dmr_segmentation.bed.gz",
+        f"{OUTDIR}/modkit_dmr_merged_unphased/merged_groups_dmr_segmentation.bed.gz.tbi",
+        f"{OUTDIR}/modkit_dmr_merged_unphased/merged_groups_dmr_diff.bed.gz",
+        f"{OUTDIR}/modkit_dmr_merged_unphased/merged_groups_dmr_diff.bed.gz.tbi"
         #add this back when you install bc tool to rul merge_and_sort_SNV_SV_MOD_phased_vcfs 
 
                 #         "phasing_summary.txt",
@@ -964,8 +1131,74 @@ rule SNV_SV_MOD_haplotag:
         """)
 
 
+###haplotagging SNV+SV+mod VCFs with germline snps
+rule SNV_SV_MOD_coPhased_haplotagged_with_germline:
+    """
+    Haplotag a co-phased SNV+SV+mod VCF trio using germline (normal) variants.
+    Both tumor and normal samples are haplotagged with the normal/germline variants.
+    """
+    input:
+        bam         = lambda wc: pair_info[wc.pair][f"{wc.type}_bam"],
+        # Always use the normal sample's phased VCFs for haplotagging
+        phased_snp  = lambda wc: f"{OUTDIR}/SNV_SV_MOD_co_phase/{wc.pair}/normal/{pair_info[wc.pair]['normal_id']}.phase.snp.vcf.gz",
+        phased_sv   = lambda wc: f"{OUTDIR}/SNV_SV_MOD_co_phase/{wc.pair}/normal/{pair_info[wc.pair]['normal_id']}.phase.sv.vcf.gz",
+        phased_mod  = lambda wc: f"{OUTDIR}/SNV_SV_MOD_co_phase/{wc.pair}/normal/{pair_info[wc.pair]['normal_id']}.phase.mod.vcf.gz"
+    output:
+        hap_bam     = f"{OUTDIR}/SNV_SV_MOD_coPhased_haplotagged_with_germline/{{pair}}/{{type}}/{{sample}}_haplotagged.bam",
+        hap_bai     = f"{OUTDIR}/SNV_SV_MOD_coPhased_haplotagged_with_germline/{{pair}}/{{type}}/{{sample}}_haplotagged.bam.bai",
+        sub_bam     = f"{OUTDIR}/SNV_SV_MOD_coPhased_haplotagged_with_germline/{{pair}}/{{type}}/{{sample}}_haplotagged.subsampled.bam",
+        sub_bai     = f"{OUTDIR}/SNV_SV_MOD_coPhased_haplotagged_with_germline/{{pair}}/{{type}}/{{sample}}_haplotagged.subsampled.bam.bai",
+        done        = f"{OUTDIR}/SNV_SV_MOD_coPhased_haplotagged_with_germline/{{pair}}/{{type}}/done.{{sample}}.txt"
+    params:
+        out_prefix  = f"{OUTDIR}/SNV_SV_MOD_coPhased_haplotagged_with_germline/{{pair}}/{{type}}/{{sample}}_haplotagged",
+        expected_sample = lambda wc: pair_info[wc.pair][f"{wc.type}_id"],
+        normal_sample = lambda wc: pair_info[wc.pair]['normal_id']
+    threads: THREADS
+    singularity: ONT_TOOLS_IMG
+    log:
+        f"{config['logging']['log_dir']}/haplotag_germline/{{pair}}/{{type}}/{{sample}}.log"
+    run:
+        # Validate that the sample belongs to this pair
+        if wildcards.sample != params.expected_sample:
+            raise ValueError(
+                f"Invalid sample-pair combination: {wildcards.sample} is not the "
+                f"{wildcards.type} sample for pair {wildcards.pair}. "
+                f"Expected: {params.expected_sample}"
+            )
+        
+        # Run the actual command
+        shell(r"""
+        mkdir -p {OUTDIR}/SNV_SV_MOD_coPhased_haplotagged_with_germline/{wildcards.pair}/{wildcards.type}
 
+        echo "Processing {wildcards.type} sample {wildcards.sample} for pair {wildcards.pair}" | tee {log}
+        echo "Using germline variants from normal sample: {params.normal_sample}" | tee -a {log}
 
+        longphase haplotag \
+          -s {input.phased_snp} \
+          --sv-file {input.phased_sv} \
+          --mod-file {input.phased_mod} \
+          -b {input.bam} \
+          -r {REF} \
+          -t {threads} \
+          -o {params.out_prefix} \
+        2>&1 | tee -a {log}
+
+        # index the full haplotagged BAM
+        samtools index {output.hap_bam}
+
+        # subsample out only chr17 (or whatever filtering you want)
+        samtools view -h {output.hap_bam} \
+        | awk 'BEGIN{{OFS="\t"}}
+           /^@SQ/ {{ if ($2=="SN:17") print; next }}
+           /^@/  {{ print;      next }}
+                  {{ print }}
+        ' \
+        | samtools view -b -o {output.sub_bam}
+
+        samtools index {output.sub_bam}
+
+        touch {output.done}
+        """)
 ##### combine phased vcfs #####
 ##TO FIX: Sample names in the output VCFs are not consistent with the input VCFs.
 rule merge_and_sort_SNV_SV_MOD_phased_vcfs:
@@ -978,14 +1211,11 @@ rule merge_and_sort_SNV_SV_MOD_phased_vcfs:
         # Main outputs
         merged_cophased_vcfs = f"{OUTDIR}/merge_and_sort_SNV_SV_MOD_phased_vcfs/{{pair}}/{{type}}/{{sample_id}}_SNV_SV_MOD_cophased_merged_sorted.vcf.gz",
         merged_index = f"{OUTDIR}/merge_and_sort_SNV_SV_MOD_phased_vcfs/{{pair}}/{{type}}/{{sample_id}}_SNV_SV_MOD_cophased_merged_sorted.vcf.gz.tbi",
-        
         # WhatsHap phasing statistics
         phased_stats = f"{OUTDIR}/merge_and_sort_SNV_SV_MOD_phased_vcfs/{{pair}}/{{type}}/{{sample_id}}_SNV_SV_MOD_cophased_merged_stats.tsv",
-        phased_gtf = f"{OUTDIR}/merge_and_sort_SNV_SV_MOD_phased_vcfs/{{pair}}/{{type}}/{{sample_id}}_SNV_SV_MOD_cophased_merged.gtf",
-        
+        phased_gtf = f"{OUTDIR}/merge_and_sort_SNV_SV_MOD_phased_vcfs/{{pair}}/{{type}}/{{sample_id}}_SNV_SV_MOD_cophased_merged.gtf"
         # Phasing completeness metrics
         #phase_summary = f"{OUTDIR}/merge_and_sort_SNV_SV_MOD_phased_vcfs/{{pair}}/{{type}}/{{sample_id}}_phasing_summary.txt",
-        
         # N50 statistics for phase blocks
         #n50_stats = f"{OUTDIR}/merge_and_sort_SNV_SV_MOD_phased_vcfs/{{pair}}/{{type}}/{{sample_id}}_phase_block_n50.txt"
     params:
@@ -1020,8 +1250,15 @@ rule merge_and_sort_SNV_SV_MOD_phased_vcfs:
             --gtf {output.phased_gtf} \
             {output.merged_cophased_vcfs} 2>&1 | tee -a {log}
         
-        # 3. Generate comprehensive phasing summary
-        echo "Step 3: Creating phasing summary..." | tee -a {log}
+        echo "Phasing quality assessment complete!" | tee -a {log}
+        """
+#phasing stats; --chromosome 5 
+#singularity exec -B /data1/greenbab/ /data1/greenbab/users/ahunos/apps/containers/onttools_v2.0.sif whatshap stats --chromosome 5 --tsv evals_phasing/all_phased_merged_sorted_chr5.tsv --gtf evals_phasing/all_phased_merged_sorted_chr5.gtf all_phased.merged.sorted.vcf.gz 
+# singularity exec -B /data1/greenbab/ /data1/greenbab/users/ahunos/apps/containers/onttools_v2.0.sif multiqc evals_phasing/
+#  stats --tsv all_phased_merged_sorted.tsv --gtf all_phased_merged_sorted.gtf all_phased.merged.sorted.vcf.gz 
+
+# 3. Generate comprehensive phasing summary
+        #echo "Step 3: Creating phasing summary..." | tee -a {log}
         # (
         #     echo "=== Phasing Summary for {params.sample_id} ==="
         #     echo "Generated: $(date)"
@@ -1107,7 +1344,6 @@ rule merge_and_sort_SNV_SV_MOD_phased_vcfs:
         #             echo "Average variants per phase block: $avg_vars"
         #         fi
         #     fi
-            
         # ) > {output.phase_summary}
         
         # # 4. Calculate N50 statistics for phase blocks
@@ -1190,17 +1426,369 @@ rule merge_and_sort_SNV_SV_MOD_phased_vcfs:
             
         #     rm -f {output.n50_stats}.tmp
         # ) > {output.n50_stats}
+
+
+
+### sv + snv cophase + haplotagging
+rule longphase_SNV_SV_co_phase:
+    """
+    Co-phase SNPs and SVs together (without methylation).
+    Produces two phased VCFs (snp, sv) plus a done file.
+    """
+    input:
+        bam     = lambda wc: pair_info[wc.pair][f"{wc.type}_bam"],
+        snp_vcf = f"{OUTDIR}/filter_pass/{{type}}/{{pair}}/{{sample_id}}.pass.vcf.gz",
+        sv_vcf  = f"{SV_OUTDIR}/{{pair}}/{{type}}/{{sample_id}}.{{type}}.sniffles.filtered.vcf.gz"
+    output:
+        tmp_phased_snp = f"{OUTDIR}/SNV_SV_co_phase/{{pair}}/{{type}}/{{sample_id}}.vcf",
+        tmp_phased_sv  = f"{OUTDIR}/SNV_SV_co_phase/{{pair}}/{{type}}/{{sample_id}}_SV.vcf",
+        # Final phased VCFs
+        phased_snp = f"{OUTDIR}/SNV_SV_co_phase/{{pair}}/{{type}}/{{sample_id}}.phase.snp.vcf.gz",
+        phased_sv  = f"{OUTDIR}/SNV_SV_co_phase/{{pair}}/{{type}}/{{sample_id}}.phase.sv.vcf.gz",
+        done       = f"{OUTDIR}/SNV_SV_co_phase/{{pair}}/{{type}}/done.{{sample_id}}.txt"
+    params:
+        ref     = REF,
+        threads = THREADS,
+        expected_sample = lambda wc: pair_info[wc.pair][f"{wc.type}_id"]
+    threads: THREADS
+    singularity: ONT_TOOLS_IMG
+    log:
+        f"{config['logging']['log_dir']}/SNV_SV_co_phase/{{pair}}/{{type}}/{{sample_id}}.log"
+    run:
+        # Validate that the sample belongs to this pair
+        print(f"DEBUG: Processing pair={wildcards.pair}, type={wildcards.type}, sample={wildcards.sample}")
+        print(f"DEBUG: Expected sample for this pair/type: {params.expected_sample}")
+        print(f"DEBUG: pair_info for this pair: {pair_info.get(wildcards.pair, 'NOT FOUND')}")
         
-        echo "Phasing quality assessment complete!" | tee -a {log}
+        if wildcards.sample_id != params.expected_sample:
+            raise ValueError(
+                f"Invalid sample-pair combination: {wildcards.sample_id} is not the "
+                f"{wildcards.type} sample for pair {wildcards.pair}. "
+                f"Expected: {params.expected_sample}"
+            )
+        
+        shell(r"""
+        mkdir -p {OUTDIR}/SNV_SV_co_phase/{wildcards.pair}/{wildcards.type}
+
+        echo "Co-phasing SNVs and SVs for {wildcards.sample_id}" | tee {log}
+
+        longphase phase \
+          -s {input.snp_vcf} \
+          --sv-file {input.sv_vcf} \
+          -b {input.bam} \
+          -r {params.ref} \
+          -t {params.threads} \
+          -o {OUTDIR}/SNV_SV_co_phase/{wildcards.pair}/{wildcards.type}/{wildcards.sample_id} \
+          --ont \
+        2>&1 | tee -a {log}
+
+        # compress & index each output VCF
+        bgzip -f {output.tmp_phased_snp} -o {output.phased_snp}
+        bgzip -f {output.tmp_phased_sv} -o {output.phased_sv}
+
+        tabix -p vcf {output.phased_snp}
+        tabix -p vcf {output.phased_sv}
+
+        touch {output.done}
+        """)
+
+
+rule SNV_SV_coPhased_haplotagged:
+    """
+    Haplotag BAMs using co-phased SNV+SV VCFs (without methylation).
+    """
+    input:
+        bam         = lambda wc: pair_info[wc.pair][f"{wc.type}_bam"],
+        phased_snp  = f"{OUTDIR}/SNV_SV_co_phase/{{pair}}/{{type}}/{{sample}}.phase.snp.vcf.gz",
+        phased_sv   = f"{OUTDIR}/SNV_SV_co_phase/{{pair}}/{{type}}/{{sample}}.phase.sv.vcf.gz"
+    output:
+        hap_bam     = f"{OUTDIR}/SNV_SV_coPhased_haplotagged/{{pair}}/{{type}}/{{sample}}_haplotagged.bam",
+        hap_bai     = f"{OUTDIR}/SNV_SV_coPhased_haplotagged/{{pair}}/{{type}}/{{sample}}_haplotagged.bam.bai",
+        sub_bam     = f"{OUTDIR}/SNV_SV_coPhased_haplotagged/{{pair}}/{{type}}/{{sample}}_haplotagged.subsampled.bam",
+        sub_bai     = f"{OUTDIR}/SNV_SV_coPhased_haplotagged/{{pair}}/{{type}}/{{sample}}_haplotagged.subsampled.bam.bai",
+        done        = f"{OUTDIR}/SNV_SV_coPhased_haplotagged/{{pair}}/{{type}}/done.{{sample}}.txt"
+    params:
+        out_prefix  = f"{OUTDIR}/SNV_SV_coPhased_haplotagged/{{pair}}/{{type}}/{{sample}}_haplotagged",
+        expected_sample = lambda wc: pair_info[wc.pair][f"{wc.type}_id"]
+    threads: THREADS
+    singularity: ONT_TOOLS_IMG
+    log:
+        f"{config['logging']['log_dir']}/SNV_SV_haplotag/{{pair}}/{{type}}/{{sample}}.log"
+    run:
+        # Validate that the sample belongs to this pair
+        if wildcards.sample != params.expected_sample:
+            raise ValueError(
+                f"Invalid sample-pair combination: {wildcards.sample} is not the "
+                f"{wildcards.type} sample for pair {wildcards.pair}. "
+                f"Expected: {params.expected_sample}"
+            )
+        
+        shell(r"""
+        mkdir -p {OUTDIR}/SNV_SV_coPhased_haplotagged/{wildcards.pair}/{wildcards.type}
+
+        echo "Haplotagging {wildcards.type} sample {wildcards.sample} for pair {wildcards.pair}" | tee {log}
+
+        longphase haplotag \
+          -s {input.phased_snp} \
+          --sv-file {input.phased_sv} \
+          -b {input.bam} \
+          -r {REF} \
+          -t {threads} \
+          -o {params.out_prefix} \
+        2>&1 | tee -a {log}
+
+        # index the full haplotagged BAM
+        samtools index {output.hap_bam}
+
+        # subsample out only chr17 (or whatever filtering you want)
+        samtools view -h {output.hap_bam} \
+        | awk 'BEGIN{{OFS="\t"}}
+           /^@SQ/ {{ if ($2=="SN:17") print; next }}
+           /^@/  {{ print;      next }}
+                  {{ print }}
+        ' \
+        | samtools view -b -o {output.sub_bam}
+
+        samtools index {output.sub_bam}
+
+        touch {output.done}
+        """)
+
+
+rule SNV_SV_coPhased_haplotagged_with_germline:
+    """
+    Haplotag BAMs using co-phased SNV+SV VCFs from germline (normal) variants.
+    Both tumor and normal samples are haplotagged with the normal/germline variants.
+    """
+    input:
+        bam         = lambda wc: pair_info[wc.pair][f"{wc.type}_bam"],
+        # Always use the normal sample's phased VCFs for haplotagging
+        phased_snp  = lambda wc: f"{OUTDIR}/SNV_SV_co_phase/{wc.pair}/normal/{pair_info[wc.pair]['normal_id']}.phase.snp.vcf.gz",
+        phased_sv   = lambda wc: f"{OUTDIR}/SNV_SV_co_phase/{wc.pair}/normal/{pair_info[wc.pair]['normal_id']}.phase.sv.vcf.gz"
+    output:
+        hap_bam     = f"{OUTDIR}/SNV_SV_coPhased_haplotagged_with_germline/{{pair}}/{{type}}/{{sample}}_haplotagged.bam",
+        hap_bai     = f"{OUTDIR}/SNV_SV_coPhased_haplotagged_with_germline/{{pair}}/{{type}}/{{sample}}_haplotagged.bam.bai",
+        sub_bam     = f"{OUTDIR}/SNV_SV_coPhased_haplotagged_with_germline/{{pair}}/{{type}}/{{sample}}_haplotagged.subsampled.bam",
+        sub_bai     = f"{OUTDIR}/SNV_SV_coPhased_haplotagged_with_germline/{{pair}}/{{type}}/{{sample}}_haplotagged.subsampled.bam.bai",
+        done        = f"{OUTDIR}/SNV_SV_coPhased_haplotagged_with_germline/{{pair}}/{{type}}/done.{{sample}}.txt"
+    params:
+        out_prefix  = f"{OUTDIR}/SNV_SV_coPhased_haplotagged_with_germline/{{pair}}/{{type}}/{{sample}}_haplotagged",
+        expected_sample = lambda wc: pair_info[wc.pair][f"{wc.type}_id"],
+        normal_sample = lambda wc: pair_info[wc.pair]['normal_id']
+    threads: THREADS
+    singularity: ONT_TOOLS_IMG
+    log:
+        f"{config['logging']['log_dir']}/SNV_SV_haplotag_germline/{{pair}}/{{type}}/{{sample}}.log"
+    run:
+        # Validate that the sample belongs to this pair
+        if wildcards.sample != params.expected_sample:
+            raise ValueError(
+                f"Invalid sample-pair combination: {wildcards.sample} is not the "
+                f"{wildcards.type} sample for pair {wildcards.pair}. "
+                f"Expected: {params.expected_sample}"
+            )
+        
+        shell(r"""
+        mkdir -p {OUTDIR}/SNV_SV_coPhased_haplotagged_with_germline/{wildcards.pair}/{wildcards.type}
+
+        echo "Haplotagging {wildcards.type} sample {wildcards.sample} for pair {wildcards.pair}" | tee {log}
+        echo "Using germline variants from normal sample: {params.normal_sample}" | tee -a {log}
+
+        longphase haplotag \
+          -s {input.phased_snp} \
+          --sv-file {input.phased_sv} \
+          -b {input.bam} \
+          -r {REF} \
+          -t {threads} \
+          -o {params.out_prefix} \
+        2>&1 | tee -a {log}
+
+        # index the full haplotagged BAM
+        samtools index {output.hap_bam}
+
+        # subsample out only chr17 (or whatever filtering you want)
+        samtools view -h {output.hap_bam} \
+        | awk 'BEGIN{{OFS="\t"}}
+           /^@SQ/ {{ if ($2=="SN:17") print; next }}
+           /^@/  {{ print;      next }}
+                  {{ print }}
+        ' \
+        | samtools view -b -o {output.sub_bam}
+
+        samtools index {output.sub_bam}
+
+        touch {output.done}
+        """)
+
+# Pileup rule for SNV+SV haplotagged BAMs
+rule modkit_pileupCpGsBed_SNV_SV_cophased:
+    """
+    Run modkit pileup for SNV+SV haplotagged BAMs,
+    writing three bed outputs plus a done flag.
+    """
+    input:
+        haplotagged_bam = (
+            f"{OUTDIR}/SNV_SV_coPhased_haplotagged/"
+            f"{{pair}}/{{type}}/{{sample_id}}_haplotagged.subsampled.bam"
+        )
+    output:
+        mp1   = f"{OUTDIR}/modkit_pileupCpGsBed_SNV_SV_cophased/{{pair}}/{{type}}/{{sample_id}}_1.bed",
+        mp2   = f"{OUTDIR}/modkit_pileupCpGsBed_SNV_SV_cophased/{{pair}}/{{type}}/{{sample_id}}_2.bed",
+        mpU   = f"{OUTDIR}/modkit_pileupCpGsBed_SNV_SV_cophased/{{pair}}/{{type}}/{{sample_id}}_ungrouped.bed",
+        done  = f"{OUTDIR}/modkit_pileupCpGsBed_SNV_SV_cophased/{{pair}}/{{type}}/done.{{sample_id}}.txt"
+    params:
+        ref             = REF,
+        mincov          = config["methylation"]["modkit"]["min_coverage"],
+        filter_threshold= config["methylation"]["modkit"]["filter_threshold"],
+        sampling_frac   = config["methylation"]["modkit"]["sampling_fraction"],
+        combine_strands = "--combine-strands" if config["methylation"]["modkit"]["combine_strands"] else "",
+        cpg_only        = "--cpg"             if config["methylation"]["modkit"]["cpg_only"] else "",
+        outdir          = lambda wc: f"{OUTDIR}/modkit_pileupCpGsBed_SNV_SV_cophased/{wc.pair}/{wc.type}/",
+        prefix = lambda wc: wc.sample_id
+    threads: THREADS
+    singularity: MODKIT_IMG
+    log:
+        f"{config['logging']['log_dir']}/modkit_pileupCpGsBed_SNV_SV_cophased/{{pair}}/{{type}}/{{sample_id}}.log"
+    shell:
+        r"""
+        mkdir -p {params.outdir}
+
+        modkit pileup \
+          --ref {params.ref} \
+          {params.cpg_only} {params.combine_strands} \
+          --filter-threshold {params.filter_threshold} \
+          --sampling-frac {params.sampling_frac} \
+          --threads {threads} \
+          --partition-tag HP \
+          --prefix {params.prefix} \
+          {input.haplotagged_bam} \
+          {params.outdir} \
+        2>&1 | tee -a {log}
+
+        touch {output.done}
         """
-#phasing stats; --chromosome 5 
-#singularity exec -B /data1/greenbab/ /data1/greenbab/users/ahunos/apps/containers/onttools_v2.0.sif whatshap stats --chromosome 5 --tsv evals_phasing/all_phased_merged_sorted_chr5.tsv --gtf evals_phasing/all_phased_merged_sorted_chr5.gtf all_phased.merged.sorted.vcf.gz 
-# singularity exec -B /data1/greenbab/ /data1/greenbab/users/ahunos/apps/containers/onttools_v2.0.sif multiqc evals_phasing/
-#  stats --tsv all_phased_merged_sorted.tsv --gtf all_phased_merged_sorted.gtf all_phased.merged.sorted.vcf.gz 
 
+# Pileup rule for SNV+SV haplotagged with germline BAMs
+rule modkit_pileupCpGsBed_SNV_SV_cophased_with_germline:
+    """
+    Run modkit pileup for SNV+SV haplotagged with germline BAMs,
+    writing three bed outputs plus a done flag.
+    """
+    input:
+        haplotagged_bam = (
+            f"{OUTDIR}/SNV_SV_coPhased_haplotagged_with_germline/"
+            f"{{pair}}/{{type}}/{{sample_id}}_haplotagged.subsampled.bam"
+        )
+    output:
+        mp1   = f"{OUTDIR}/modkit_pileupCpGsBed_SNV_SV_cophased_with_germline/{{pair}}/{{type}}/{{sample_id}}_1.bed",
+        mp2   = f"{OUTDIR}/modkit_pileupCpGsBed_SNV_SV_cophased_with_germline/{{pair}}/{{type}}/{{sample_id}}_2.bed",
+        mpU   = f"{OUTDIR}/modkit_pileupCpGsBed_SNV_SV_cophased_with_germline/{{pair}}/{{type}}/{{sample_id}}_ungrouped.bed",
+        done  = f"{OUTDIR}/modkit_pileupCpGsBed_SNV_SV_cophased_with_germline/{{pair}}/{{type}}/done.{{sample_id}}.txt"
+    params:
+        ref             = REF,
+        mincov          = config["methylation"]["modkit"]["min_coverage"],
+        filter_threshold= config["methylation"]["modkit"]["filter_threshold"],
+        sampling_frac   = config["methylation"]["modkit"]["sampling_fraction"],
+        combine_strands = "--combine-strands" if config["methylation"]["modkit"]["combine_strands"] else "",
+        cpg_only        = "--cpg"             if config["methylation"]["modkit"]["cpg_only"] else "",
+        outdir          = lambda wc: f"{OUTDIR}/modkit_pileupCpGsBed_SNV_SV_cophased_with_germline/{wc.pair}/{wc.type}/",
+        prefix = lambda wc: wc.sample_id
+    threads: THREADS
+    singularity: MODKIT_IMG
+    log:
+        f"{config['logging']['log_dir']}/modkit_pileupCpGsBed_SNV_SV_cophased_with_germline/{{pair}}/{{type}}/{{sample_id}}.log"
+    shell:
+        r"""
+        mkdir -p {params.outdir}
 
+        modkit pileup \
+          --ref {params.ref} \
+          {params.cpg_only} {params.combine_strands} \
+          --filter-threshold {params.filter_threshold} \
+          --sampling-frac {params.sampling_frac} \
+          --threads {threads} \
+          --partition-tag HP \
+          --prefix {params.prefix} \
+          {input.haplotagged_bam} \
+          {params.outdir} \
+        2>&1 | tee -a {log}
 
+        touch {output.done}
+        """
 
+# SortTabix rule for SNV+SV cophased
+rule modkit_pileup_sortTabixBed_SNV_SV_cophased:
+    """
+    Sort and tabix modkit pileup bed files for SNV+SV cophased samples.
+    """
+    input:
+        bed = lambda wc: (
+            f"{OUTDIR}/modkit_pileupCpGsBed_SNV_SV_cophased/{wc.pair}/{wc.type}/"
+            f"{pair_info[wc.pair][f'{wc.type}_id']}_{wc.haplotype}.bed"
+        )
+    output:
+        sorted_bed = f"{OUTDIR}/modkit_pileup_sortTabixBed_SNV_SV_cophased/{{pair}}/{{type}}/{{sample_id}}_{{haplotype}}_sorted.bed",
+        sorted_tabixed = f"{OUTDIR}/modkit_pileup_sortTabixBed_SNV_SV_cophased/{{pair}}/{{type}}/{{sample_id}}_{{haplotype}}_sorted.bed.gz",
+        tbi = f"{OUTDIR}/modkit_pileup_sortTabixBed_SNV_SV_cophased/{{pair}}/{{type}}/{{sample_id}}_{{haplotype}}_sorted.bed.gz.tbi"
+    singularity: MODKIT_IMG
+    params:
+        mincov = minCov,
+        expected_sample = lambda wc: pair_info[wc.pair][f'{wc.type}_id']
+    threads: THREADS
+    log:
+        f"{config['logging']['log_dir']}/modkit_pileup_sortTabixBed_SNV_SV_cophased/{{pair}}/{{type}}/{{sample_id}}_{{haplotype}}.log"
+    run:
+        # Validate that the sample_id matches the expected sample for this pair/type
+        if wildcards.sample_id != params.expected_sample:
+            raise ValueError(
+                f"Invalid sample-pair-type combination: {wildcards.sample_id} is not the "
+                f"{wildcards.type} sample for pair {wildcards.pair}. "
+                f"Expected: {params.expected_sample}"
+            )
+        
+        shell("""
+        echo "Sorting and filtering {input.bed} for min coverage {params.mincov}" | tee {log}
+        sort -k1,1 -k2,2n {input.bed} > {output.sorted_bed} 2>&1 | tee -a {log}
+        bgzip -c {output.sorted_bed} > {output.sorted_tabixed} 2>&1 | tee -a {log}
+        tabix -p bed {output.sorted_tabixed} 2>&1 | tee -a {log}
+        """)
+
+# SortTabix rule for SNV+SV cophased with germline
+rule modkit_pileup_sortTabixBed_SNV_SV_cophased_with_germline:
+    """
+    Sort and tabix modkit pileup bed files for SNV+SV cophased with germline samples.
+    """
+    input:
+        bed = lambda wc: (
+            f"{OUTDIR}/modkit_pileupCpGsBed_SNV_SV_cophased_with_germline/{wc.pair}/{wc.type}/"
+            f"{pair_info[wc.pair][f'{wc.type}_id']}_{wc.haplotype}.bed"
+        )
+    output:
+        sorted_bed = f"{OUTDIR}/modkit_pileup_sortTabixBed_SNV_SV_cophased_with_germline/{{pair}}/{{type}}/{{sample_id}}_{{haplotype}}_sorted.bed",
+        sorted_tabixed = f"{OUTDIR}/modkit_pileup_sortTabixBed_SNV_SV_cophased_with_germline/{{pair}}/{{type}}/{{sample_id}}_{{haplotype}}_sorted.bed.gz",
+        tbi = f"{OUTDIR}/modkit_pileup_sortTabixBed_SNV_SV_cophased_with_germline/{{pair}}/{{type}}/{{sample_id}}_{{haplotype}}_sorted.bed.gz.tbi"
+    singularity: MODKIT_IMG
+    params:
+        mincov = minCov,
+        expected_sample = lambda wc: pair_info[wc.pair][f'{wc.type}_id']
+    threads: THREADS
+    log:
+        f"{config['logging']['log_dir']}/modkit_pileup_sortTabixBed_SNV_SV_cophased_with_germline/{{pair}}/{{type}}/{{sample_id}}_{{haplotype}}.log"
+    run:
+        # Validate that the sample_id matches the expected sample for this pair/type
+        if wildcards.sample_id != params.expected_sample:
+            raise ValueError(
+                f"Invalid sample-pair-type combination: {wildcards.sample_id} is not the "
+                f"{wildcards.type} sample for pair {wildcards.pair}. "
+                f"Expected: {params.expected_sample}"
+            )
+        
+        shell("""
+        echo "Sorting and filtering {input.bed} for min coverage {params.mincov}" | tee {log}
+        sort -k1,1 -k2,2n {input.bed} > {output.sorted_bed} 2>&1 | tee -a {log}
+        bgzip -c {output.sorted_bed} > {output.sorted_tabixed} 2>&1 | tee -a {log}
+        tabix -p bed {output.sorted_tabixed} 2>&1 | tee -a {log}
+        """)
 # ─── OPTIONAL: WhatsHap SNV phasing ──────────────────────────────────────
 rule whatshap_phase:
     """
@@ -1213,7 +1801,7 @@ rule whatshap_phase:
     output:
         phased = f"{OUTDIR}/whatsHap_phase/{{pair}}/{{type}}/{{sample_id}}.whatsHap.phased.vcf.gz",
         tbi    = f"{OUTDIR}/whatsHap_phase/{{pair}}/{{type}}/{{sample_id}}.whatsHap.phased.vcf.gz.tbi",
-        #reads  = f"{OUTDIR}/whatsHap_phase/{{pair}}/{{type}}/{{sample_id}}.whatsHap.phased.vcf.gz.reads"  # Added this output
+        #reads  = f"{OUTDIR}/whatsHap_phase/{{pair}}/{{type}}/{{sample_id}}.whatsHap.phased.vcf.gz.reads"  # not necessary anymore
     params:
         ref     = REF,
         expected_sample = lambda wc: pair_info[wc.pair][f"{wc.type}_id"]
@@ -1352,8 +1940,16 @@ rule modkit_pileup_unphased_TN:
         # log must also be a static pattern
         f"{config['logging']['log_dir']}/modkit_pileup_unphased_TN/{{pair}}/{{type}}/{{sample_id}}.log"
     singularity: MODKIT_IMG
-    shell:
-        r"""
+    run:
+        # ADD THIS VALIDATION
+        if wildcards.sample_id != params.expected_sample:
+            raise ValueError(
+                f"Invalid sample-pair combination: {wildcards.sample_id} is not the "
+                f"{wildcards.type} sample for pair {wildcards.pair}. "
+                f"Expected: {params.expected_sample}"
+            )
+        
+        shell(r"""
         set -euo pipefail
 
         mkdir -p {params.outdir}
@@ -1378,7 +1974,7 @@ rule modkit_pileup_unphased_TN:
 
         # 4) done
         touch {output.done}
-        """
+        """)
 
 rule modkit_dmr_unphased_TN:
     """
@@ -1448,9 +2044,131 @@ rule modkit_dmr_unphased_TN:
         tabix -p bed {output.diff_gz}
         """
 
+
+## merge methylation pileups for tumor and normal
+rule merge_bedmethyl_by_type_dedup:
+    """
+    Alternative rule that explicitly handles deduplication of samples
+    that may appear in multiple pairs with the same ID.
+    """
+    input:
+        # Dynamic function to find all existing bed files
+        beds = lambda wc: expand(
+            f"{OUTDIR}/modkit_pileup_unphased_TN/{{pair}}/{{type}}/{{sample_id}}.bed.gz",
+            pair=pair_info.keys(),
+            type=wc.type,
+            sample_id=[pair_info[pair][f'{wc.type}_id'] for pair in pair_info.keys()]
+        )
+    output:
+        bed_gz  = f"{OUTDIR}/merged_pileups_unphased_dedup/merged_{{type}}s_unphased.bed.gz",
+        tbi     = f"{OUTDIR}/merged_pileups_unphased_dedup/merged_{{type}}s_unphased.bed.gz.tbi"
+    params:
+        genome_sizes = GENOMESIZES,
+        outdir = lambda wc: f"{OUTDIR}/merged_pileups_unphased_dedup"
+    threads: THREADS
+    singularity: MODKIT_IMG
+    log:
+        f"{config['logging']['log_dir']}/merge_bedmethyl_dedup/{{type}}.log"
+    shell:
+        r"""
+        set -euo pipefail
+        
+        mkdir -p {params.outdir}
+        
+        # Create temporary file for unique bed list
+        UNIQUE_BEDS=$(mktemp)
+        
+        # Get unique bed files based on filename (sample_id)
+        for bed in {input.beds}; do
+            echo "$bed"
+        done | awk -F'/' '!seen[$NF]++ {{print}}' > $UNIQUE_BEDS
+        
+        # 1) Merge unique bedmethyl files
+        modkit bedmethyl merge \
+            $(cat $UNIQUE_BEDS) \
+            -o {params.outdir}/merged_{wildcards.type}s_unphased.bed \
+            -g {params.genome_sizes} \
+        2>&1 | tee {log}
+        
+        # 2) Compress the merged bed file
+        bgzip {params.outdir}/merged_{wildcards.type}s_unphased.bed
+        
+        # 3) Index the compressed file
+        tabix -p bed {output.bed_gz}
+        
+        # Clean up
+        rm -f $UNIQUE_BEDS
+        """
+### dmr merged unphaesed
+rule modkit_dmr_merged_unphased:
+    """
+    Call DMRs comparing merged normal vs merged tumor 5mC BED outputs.
+    """
+    input:
+        normal_bed = f"{OUTDIR}/merged_pileups_unphased_dedup/merged_normals_unphased.bed.gz",
+        tumor_bed  = f"{OUTDIR}/merged_pileups_unphased_dedup/merged_tumors_unphased.bed.gz"
+    output:
+        raw_dmr      = f"{OUTDIR}/modkit_dmr_merged_unphased/merged_groups_raw_dmr.bed",
+        raw_seg      = f"{OUTDIR}/modkit_dmr_merged_unphased/merged_groups_raw_segmentation.bed",
+        dmr_gz       = f"{OUTDIR}/modkit_dmr_merged_unphased/merged_groups_dmr.bed.gz",
+        dmr_tbi      = f"{OUTDIR}/modkit_dmr_merged_unphased/merged_groups_dmr.bed.gz.tbi",
+        seg_gz       = f"{OUTDIR}/modkit_dmr_merged_unphased/merged_groups_dmr_segmentation.bed.gz",
+        seg_tbi      = f"{OUTDIR}/modkit_dmr_merged_unphased/merged_groups_dmr_segmentation.bed.gz.tbi",
+        diff_bed     = f"{OUTDIR}/modkit_dmr_merged_unphased/merged_groups_dmr_diff.bed",
+        diff_gz      = f"{OUTDIR}/modkit_dmr_merged_unphased/merged_groups_dmr_diff.bed.gz",
+        diff_tbi     = f"{OUTDIR}/modkit_dmr_merged_unphased/merged_groups_dmr_diff.bed.gz.tbi"
+    params:
+        ref            = REF,
+        base           = "C",
+        mincov         = minCov,
+        min_dmr_sites  = 3
+    threads: THREADS
+    singularity: MODKIT_IMG
+    log:
+        f"{config['logging']['log_dir']}/dmr_merged_groups/merged_groups.log"
+    shell:
+        # Same shell commands as modkit_dmr_unphased_TN
+        r"""
+        set -euo pipefail
+        mkdir -p $(dirname {output.raw_dmr})
+
+        # 1) call raw DMR + segmentation
+        modkit dmr pair \
+          -a {input.normal_bed} \
+          -b {input.tumor_bed} \
+          --ref {params.ref} \
+          --base {params.base} \
+          --min-valid-coverage {params.mincov} \
+          --threads {threads} \
+          --segment {output.raw_seg} \
+          -o {output.raw_dmr} \
+        2>&1 | tee {log}
+
+        # 2-5) Same compression and filtering steps...
+        # 2) compress & index raw DMR
+        sort -k1,1 -k2,2n {output.raw_dmr} \
+          | bgzip -c > {output.dmr_gz}
+        tabix -p bed {output.dmr_gz}
+
+        # 3) compress & index raw segmentation
+        sort -k1,1 -k2,2n {output.raw_seg} \
+          | bgzip -c > {output.seg_gz}
+        tabix -p bed {output.seg_gz}
+
+        # 4) filter “different” DMRs
+        awk -F '\t' 'NR>1 && $4=="different" && $6>={params.min_dmr_sites} && ($14>=0.5||$14<=-0.5) && ($15*$16>0)' \
+          {output.raw_seg} > {output.diff_bed}
+
+        # 5) compress & index filtered DMRs
+        sort -k1,1 -k2,2n {output.diff_bed} \
+          | bgzip -c > {output.diff_gz}
+        tabix -p bed {output.diff_gz}
+        """
+
+
 #--prefix {wildcards.sample_id} \
 # ─── METHYLATION PILEUP for tumor ────────────────────────────
-rule modkit_pileupCpGsBed:
+rule modkit_pileupCpGsBed_phased:
     """
     Run modkit pileup for either tumor or normal haplotagged BAMs,
     writing three bed outputs plus a done flag.
@@ -1461,10 +2179,10 @@ rule modkit_pileupCpGsBed:
             f"{{pair}}/{{type}}/{{sample_id}}_haplotagged.subsampled.bam"
         )
     output:
-        mp1   = f"{OUTDIR}/modkit_pileupCpGsBed/{{pair}}/{{type}}/{{sample_id}}_1.bed",
-        mp2   = f"{OUTDIR}/modkit_pileupCpGsBed/{{pair}}/{{type}}/{{sample_id}}_2.bed",
-        mpU   = f"{OUTDIR}/modkit_pileupCpGsBed/{{pair}}/{{type}}/{{sample_id}}_ungrouped.bed",
-        done  = f"{OUTDIR}/modkit_pileupCpGsBed/{{pair}}/{{type}}/done.{{sample_id}}.txt"
+        mp1   = f"{OUTDIR}/modkit_pileupCpGsBed_phased/{{pair}}/{{type}}/{{sample_id}}_1.bed",
+        mp2   = f"{OUTDIR}/modkit_pileupCpGsBed_phased/{{pair}}/{{type}}/{{sample_id}}_2.bed",
+        mpU   = f"{OUTDIR}/modkit_pileupCpGsBed_phased/{{pair}}/{{type}}/{{sample_id}}_ungrouped.bed",
+        done  = f"{OUTDIR}/modkit_pileupCpGsBed_phased/{{pair}}/{{type}}/done.{{sample_id}}.txt"
     params:
         ref             = REF,
         mincov          = config["methylation"]["modkit"]["min_coverage"],
@@ -1472,12 +2190,12 @@ rule modkit_pileupCpGsBed:
         sampling_frac   = config["methylation"]["modkit"]["sampling_fraction"],
         combine_strands = "--combine-strands" if config["methylation"]["modkit"]["combine_strands"] else "",
         cpg_only        = "--cpg"             if config["methylation"]["modkit"]["cpg_only"] else "",
-        outdir          = lambda wc: f"{OUTDIR}/modkit_pileupCpGsBed/{wc.pair}/{wc.type}/",
+        outdir          = lambda wc: f"{OUTDIR}/modkit_pileupCpGsBed_phased/{wc.pair}/{wc.type}/",
         prefix = lambda wc: wc.sample_id
     threads: THREADS
     singularity: MODKIT_IMG
     log:
-        f"{config['logging']['log_dir']}/modkit_pileupCpGsBed/{{pair}}/{{type}}/{{sample_id}}.log"
+        f"{config['logging']['log_dir']}/modkit_pileupCpGsBed_phased/{{pair}}/{{type}}/{{sample_id}}.log"
     shell:
         r"""
         mkdir -p {params.outdir}
@@ -1498,9 +2216,182 @@ rule modkit_pileupCpGsBed:
         """
 #          --prefix {wildcards.sample_id} \
 
+### phased pileup for trio_cophased
+rule modkit_pileupCpGsBed_trio_cophased:
+    """
+    Run modkit pileup for either tumor or normal haplotagged BAMs,
+    writing three bed outputs plus a done flag.
+    """
+    input:
+        haplotagged_bam = (
+            f"{OUTDIR}/SNV_SV_MOD_coPhased_haplotagged/"
+            f"{{pair}}/{{type}}/{{sample_id}}_haplotagged.subsampled.bam"
+        )
+    output:
+        mp1   = f"{OUTDIR}/modkit_pileupCpGsBed_trio_cophased/{{pair}}/{{type}}/{{sample_id}}_1.bed",
+        mp2   = f"{OUTDIR}/modkit_pileupCpGsBed_trio_cophased/{{pair}}/{{type}}/{{sample_id}}_2.bed",
+        mpU   = f"{OUTDIR}/modkit_pileupCpGsBed_trio_cophased/{{pair}}/{{type}}/{{sample_id}}_ungrouped.bed",
+        done  = f"{OUTDIR}/modkit_pileupCpGsBed_trio_cophased/{{pair}}/{{type}}/done.{{sample_id}}.txt"
+    params:
+        ref             = REF,
+        mincov          = config["methylation"]["modkit"]["min_coverage"],
+        filter_threshold= config["methylation"]["modkit"]["filter_threshold"],
+        sampling_frac   = config["methylation"]["modkit"]["sampling_fraction"],
+        combine_strands = "--combine-strands" if config["methylation"]["modkit"]["combine_strands"] else "",
+        cpg_only        = "--cpg"             if config["methylation"]["modkit"]["cpg_only"] else "",
+        outdir          = lambda wc: f"{OUTDIR}/modkit_pileupCpGsBed_trio_cophased/{wc.pair}/{wc.type}/",
+        prefix = lambda wc: wc.sample_id
+    threads: THREADS
+    singularity: MODKIT_IMG
+    log:
+        f"{config['logging']['log_dir']}/modkit_pileupCpGsBed_trio_cophased/{{pair}}/{{type}}/{{sample_id}}.log"
+    shell:
+        r"""
+        mkdir -p {params.outdir}
+
+        modkit pileup \
+          --ref {params.ref} \
+          {params.cpg_only} {params.combine_strands} \
+          --filter-threshold {params.filter_threshold} \
+          --sampling-frac {params.sampling_frac} \
+          --threads {threads} \
+          --partition-tag HP \
+          --prefix {params.prefix} \
+          {input.haplotagged_bam} \
+          {params.outdir} \
+        2>&1 | tee -a {log}
+
+        touch {output.done}
+        """
+
+# modkit_pileupCpGsBed_trio_cophased, modkit_pileup_sortTabixBed_trio_cophased
+#trio cophased sort and tabix
+rule modkit_pileup_sortTabixBed_trio_cophased:
+    """
+    Sort and tabix modkit pileup bed files for both tumor and normal samples.
+    """
+    input:
+        bed = lambda wc: (
+            f"{OUTDIR}/modkit_pileupCpGsBed_trio_cophased/{wc.pair}/{wc.type}/"
+            f"{pair_info[wc.pair][f'{wc.type}_id']}_{wc.haplotype}.bed"
+        )
+    output:
+        sorted_bed = f"{OUTDIR}/modkit_pileup_sortTabixBed_trio_cophased/{{pair}}/{{type}}/{{sample_id}}_{{haplotype}}_sorted.bed",
+        sorted_tabixed = f"{OUTDIR}/modkit_pileup_sortTabixBed_trio_cophased/{{pair}}/{{type}}/{{sample_id}}_{{haplotype}}_sorted.bed.gz",
+        tbi = f"{OUTDIR}/modkit_pileup_sortTabixBed_trio_cophased/{{pair}}/{{type}}/{{sample_id}}_{{haplotype}}_sorted.bed.gz.tbi"
+    singularity: MODKIT_IMG
+    params:
+        mincov = minCov,
+        expected_sample = lambda wc: pair_info[wc.pair][f'{wc.type}_id']
+    threads: THREADS
+    log:
+        f"{config['logging']['log_dir']}/modkit_pileup_sortTabixBed_trio_cophased/{{pair}}/{{type}}/{{sample_id}}_{{haplotype}}.log"
+    run:
+        # Validate that the sample_id matches the expected sample for this pair/type
+        if wildcards.sample_id != params.expected_sample:
+            raise ValueError(
+                f"Invalid sample-pair-type combination: {wildcards.sample_id} is not the "
+                f"{wildcards.type} sample for pair {wildcards.pair}. "
+                f"Expected: {params.expected_sample}"
+            )
+        
+        shell("""
+        echo "Sorting and filtering {input.bed} for min coverage {params.mincov}" | tee {log}
+        sort -k1,1 -k2,2n {input.bed} > {output.sorted_bed} 2>&1 | tee -a {log}
+        bgzip -c {output.sorted_bed} > {output.sorted_tabixed} 2>&1 | tee -a {log}
+        tabix -p bed {output.sorted_tabixed} 2>&1 | tee -a {log}
+        """)
+
+rule modkit_pileupCpGsBed_trio_cophased_with_germline:
+    """
+    Run modkit pileup for either tumor or normal haplotagged BAMs,
+    writing three bed outputs plus a done flag.
+    """
+    input:
+        haplotagged_bam = (
+            f"{OUTDIR}/SNV_SV_MOD_coPhased_haplotagged_with_germline/"
+            f"{{pair}}/{{type}}/{{sample_id}}_haplotagged.subsampled.bam"
+        )
+    output:
+        mp1   = f"{OUTDIR}/modkit_pileupCpGsBed_trio_cophased_with_germline/{{pair}}/{{type}}/{{sample_id}}_1.bed",
+        mp2   = f"{OUTDIR}/modkit_pileupCpGsBed_trio_cophased_with_germline/{{pair}}/{{type}}/{{sample_id}}_2.bed",
+        mpU   = f"{OUTDIR}/modkit_pileupCpGsBed_trio_cophased_with_germline/{{pair}}/{{type}}/{{sample_id}}_ungrouped.bed",
+        done  = f"{OUTDIR}/modkit_pileupCpGsBed_trio_cophased_with_germline/{{pair}}/{{type}}/done.{{sample_id}}.txt"
+    params:
+        ref             = REF,
+        mincov          = config["methylation"]["modkit"]["min_coverage"],
+        filter_threshold= config["methylation"]["modkit"]["filter_threshold"],
+        sampling_frac   = config["methylation"]["modkit"]["sampling_fraction"],
+        combine_strands = "--combine-strands" if config["methylation"]["modkit"]["combine_strands"] else "",
+        cpg_only        = "--cpg"             if config["methylation"]["modkit"]["cpg_only"] else "",
+        outdir          = lambda wc: f"{OUTDIR}/modkit_pileupCpGsBed_trio_cophased_with_germline/{wc.pair}/{wc.type}/",
+        prefix = lambda wc: wc.sample_id
+    threads: THREADS
+    singularity: MODKIT_IMG
+    log:
+        f"{config['logging']['log_dir']}/modkit_pileupCpGsBed_trio_cophased_with_germline/{{pair}}/{{type}}/{{sample_id}}.log"
+    shell:
+        r"""
+        mkdir -p {params.outdir}
+
+        modkit pileup \
+          --ref {params.ref} \
+          {params.cpg_only} {params.combine_strands} \
+          --filter-threshold {params.filter_threshold} \
+          --sampling-frac {params.sampling_frac} \
+          --threads {threads} \
+          --partition-tag HP \
+          --prefix {params.prefix} \
+          {input.haplotagged_bam} \
+          {params.outdir} \
+        2>&1 | tee -a {log}
+
+        touch {output.done}
+        """
+
+
+#trio cophased sort and tabix
+rule modkit_pileup_sortTabixBed_trio_cophased_with_germline:
+    """
+    Sort and tabix modkit pileup bed files for both tumor and normal samples.
+    """
+    input:
+        bed = lambda wc: (
+            f"{OUTDIR}/modkit_pileupCpGsBed_trio_cophased_with_germline/{wc.pair}/{wc.type}/"
+            f"{pair_info[wc.pair][f'{wc.type}_id']}_{wc.haplotype}.bed"
+        )
+    output:
+        sorted_bed = f"{OUTDIR}/modkit_pileup_sortTabixBed_trio_cophased_with_germline/{{pair}}/{{type}}/{{sample_id}}_{{haplotype}}_sorted.bed",
+        sorted_tabixed = f"{OUTDIR}/modkit_pileup_sortTabixBed_trio_cophased_with_germline/{{pair}}/{{type}}/{{sample_id}}_{{haplotype}}_sorted.bed.gz",
+        tbi = f"{OUTDIR}/modkit_pileup_sortTabixBed_trio_cophased_with_germline/{{pair}}/{{type}}/{{sample_id}}_{{haplotype}}_sorted.bed.gz.tbi"
+    singularity: MODKIT_IMG
+    params:
+        mincov = minCov,
+        expected_sample = lambda wc: pair_info[wc.pair][f'{wc.type}_id']
+    threads: THREADS
+    log:
+        f"{config['logging']['log_dir']}/modkit_pileup_sortTabixBed_trio_cophased_with_germline/{{pair}}/{{type}}/{{sample_id}}_{{haplotype}}.log"
+    run:
+        # Validate that the sample_id matches the expected sample for this pair/type
+        if wildcards.sample_id != params.expected_sample:
+            raise ValueError(
+                f"Invalid sample-pair-type combination: {wildcards.sample_id} is not the "
+                f"{wildcards.type} sample for pair {wildcards.pair}. "
+                f"Expected: {params.expected_sample}"
+            )
+        
+        shell("""
+        echo "Sorting and filtering {input.bed} for min coverage {params.mincov}" | tee {log}
+        sort -k1,1 -k2,2n {input.bed} > {output.sorted_bed} 2>&1 | tee -a {log}
+        bgzip -c {output.sorted_bed} > {output.sorted_tabixed} 2>&1 | tee -a {log}
+        tabix -p bed {output.sorted_tabixed} 2>&1 | tee -a {log}
+        """)
+
+
+### sort and tabix modkit pileup bed files for normal and tumor samples
 rule modkit_pileup_sortTabixBedNormal:
     input:
-        bed= f"{OUTDIR}/modkit_pileupCpGsBed/{{pair}}/normal/{{normal_id}}_{{haplotype}}.bed"
+        bed= f"{OUTDIR}/modkit_pileupCpGsBed_phased/{{pair}}/normal/{{normal_id}}_{{haplotype}}.bed"
     output:
         sorted_bed= f"{OUTDIR}/modkit_pileup_sortTabixBed/{{pair}}/normal/{{normal_id}}_{{haplotype}}_sorted.bed",
         sorted_tabixed= f"{OUTDIR}/modkit_pileup_sortTabixBed/{{pair}}/normal/{{normal_id}}_{{haplotype}}_sorted.bed.gz"
@@ -1517,7 +2408,7 @@ rule modkit_pileup_sortTabixBedNormal:
         """
 rule modkit_pileup_sortTabixBedTumor:
     input:
-        bed= f"{OUTDIR}/modkit_pileupCpGsBed/{{pair}}/tumor/{{tumor_id}}_{{haplotype}}.bed"
+        bed= f"{OUTDIR}/modkit_pileupCpGsBed_phased/{{pair}}/tumor/{{tumor_id}}_{{haplotype}}.bed"
     output:
         sorted_bed= f"{OUTDIR}/modkit_pileup_sortTabixBed/{{pair}}/tumor/{{tumor_id}}_{{haplotype}}_sorted.bed",
         sorted_tabixed= f"{OUTDIR}/modkit_pileup_sortTabixBed/{{pair}}/tumor/{{tumor_id}}_{{haplotype}}_sorted.bed.gz"
@@ -1535,7 +2426,7 @@ rule modkit_pileup_sortTabixBedTumor:
 
 rule highQual_modkit_pileup_sortTabixBedNormal:
     input:
-        bed= f"{OUTDIR}/modkit_pileupCpGsBed/{{pair}}/normal/{{normal_id}}_{{haplotype}}.bed"
+        bed= f"{OUTDIR}/modkit_pileupCpGsBed_phased/{{pair}}/normal/{{normal_id}}_{{haplotype}}.bed"
     output:
         sorted_bed= f"{OUTDIR}/highQual_modkit_pileup_sortTabixBed/{{pair}}/normal/{{normal_id}}_{{haplotype}}_sorted.bed",
         sorted_tabixed= f"{OUTDIR}/highQual_modkit_pileup_sortTabixBed/{{pair}}/normal/{{normal_id}}_{{haplotype}}_sorted.bed.gz"
@@ -1553,7 +2444,7 @@ rule highQual_modkit_pileup_sortTabixBedNormal:
 
 rule highQual_modkit_pileup_sortTabixBedTumor:
     input:
-        bed= f"{OUTDIR}/modkit_pileupCpGsBed/{{pair}}/tumor/{{tumor_id}}_{{haplotype}}.bed"
+        bed= f"{OUTDIR}/modkit_pileupCpGsBed_phased/{{pair}}/tumor/{{tumor_id}}_{{haplotype}}.bed"
     output:
         sorted_bed= f"{OUTDIR}/highQual_modkit_pileup_sortTabixBed/{{pair}}/tumor/{{tumor_id}}_{{haplotype}}_sorted.bed",
         sorted_tabixed= f"{OUTDIR}/highQual_modkit_pileup_sortTabixBed/{{pair}}/tumor/{{tumor_id}}_{{haplotype}}_sorted.bed.gz"
